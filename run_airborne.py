@@ -3,15 +3,14 @@
     python run_airborne.py
     python run_airborne.py --source samples/A_L2.SVL --receiver samples/B_L2.SVL \
         --background samples/C_L20.SVL --rt samples/B_L11.SVL --rt-kind t30
+
+Each option accepts several files (positions / decays); they are averaged.
 """
 import argparse
 from pathlib import Path
 
-from calc.iso16283 import dnt
+from calc.airborne import compute_airborne
 from calc.iso717 import BANDS, airborne_summary
-from calc.levels import background_correction
-from svl.parser import ISO_SLICE, read_svl
-from svl.rt import read_rt
 
 S = Path(__file__).parent / "samples"
 
@@ -19,26 +18,22 @@ S = Path(__file__).parent / "samples"
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", default=S / "A_L2.SVL")
-    ap.add_argument("--receiver", default=S / "B_L2.SVL")
-    ap.add_argument("--background", default=S / "C_L20.SVL")
-    ap.add_argument("--rt", default=S / "B_L11.SVL")
+    ap.add_argument("--source", nargs="+", default=[S / "A_L2.SVL"])
+    ap.add_argument("--receiver", nargs="+", default=[S / "B_L2.SVL"])
+    ap.add_argument("--background", nargs="+", default=[S / "C_L20.SVL"])
+    ap.add_argument("--rt", nargs="+", default=[S / "B_L11.SVL"])
     ap.add_argument("--rt-kind", default="t30", choices=["edt", "t20", "t30"])
     a = ap.parse_args()
-    missing = [str(p) for p in (a.source, a.receiver, a.background, a.rt)
-               if not Path(p).exists()]
+    files = [p for group in (a.source, a.receiver, a.background, a.rt) for p in group]
+    missing = [str(p) for p in files if not Path(p).exists()]
     if missing:
         raise SystemExit("File(s) not found: " + ", ".join(missing) +
                          "\n(samples/ is git-ignored; copy your .SVL files into it "
                          "or pass paths with --source/--receiver/--background/--rt)")
 
-    l1 = read_svl(a.source).leq_total()[ISO_SLICE]
-    l2 = read_svl(a.receiver).leq_total()[ISO_SLICE]
-    lb = read_svl(a.background).leq_total()[ISO_SLICE]
-    t = read_rt(a.rt).at(BANDS, a.rt_kind)
-
-    l2c, status = background_correction(l2, lb)
-    d = dnt(l1, l2c, t)
+    res = compute_airborne(a.source, a.receiver, a.background, a.rt, a.rt_kind)
+    l1, l2, lb, l2c, status, t, d = (res.l1, res.l2_raw, res.lb, res.l2, res.status,
+                                     res.t, res.dnt)
 
     print(f"{'Hz':>5} {'L1':>6} {'L2':>6} {'Lb':>6} {'L2corr':>7} {'status':<9} "
           f"{'T':>6} {'DnT':>6}")

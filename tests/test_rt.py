@@ -1,5 +1,7 @@
-"""Checks svl.rt against the SvanPC++ table 'RT60 (SR)' for samples/L11.SVL."""
-import re
+"""Checks svl.rt against the SvanPC++ table 'RT60 (SR)' for samples/B_L11.SVL.
+
+(The level history was also compared value-for-value with a SvanPC++ CSV export once,
+when the reader was written; that one-off check was retired together with the CSV.)"""
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +10,7 @@ import pytest
 from svl.rt import read_rt
 
 SAMPLES = Path(__file__).parent.parent / "samples"
-SVL = SAMPLES / "L11.SVL"
+SVL = SAMPLES / "B_L11.SVL"
 pytestmark = pytest.mark.skipif(not SVL.exists(), reason="sample file missing")
 
 # Freq, EDT, RT20, RT30 as pasted from SvanPC++ (nan = ***)
@@ -67,24 +69,6 @@ def test_at_iso_bands():
     t30 = r.at(bands, "t30")
     assert t30[0] == pytest.approx(2.547) and t30[-1] == pytest.approx(0.740)
     assert not np.isnan(t30).any()
-
-
-def test_levels_match_csv():
-    csv = SAMPLES / "L11.csv"
-    if not csv.exists():
-        pytest.skip("csv missing")
-    body = csv.read_text()
-    body = body[body.index("// buffer contents"):]
-    parts = re.split(r"//rec\.(\d+)\.::", body)
-    rows = []
-    for k in range(1, len(parts) - 2, 2):        # skip last record (carries the RT table text)
-        nums = [float(t) for t in re.findall(r"-?\d+\.\d+", parts[k + 1])][:34]
-        rows.append(nums)
-    rows = np.array(rows)
-    r = read_rt(SVL)
-    got = np.hstack([r.levels, r.broadband])[: len(rows)]
-    # negative levels are stored as signed int16; all 646 x 34 values must agree
-    assert np.abs(got - rows).max() < 0.006
 
 
 def test_result_kind_validation():

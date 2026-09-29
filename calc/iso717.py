@@ -25,6 +25,12 @@ SPECTRUM_2_TRAFFIC = np.array([-20, -20, -18, -16, -15, -14, -13, -12, -11, -9, 
                                -9, -10, -11, -13, -15])
 
 LIMIT_DB = 32.0     # maximum sum of unfavourable deviations for 16 bands
+CI_BANDS = slice(0, 15)   # 100 ... 2500 Hz, the range of the impact adaptation term C_I
+
+
+def round_half_up(x) -> int:
+    """Round to the nearest integer, .5 upwards (no banker's rounding)."""
+    return int(np.floor(x + 0.5))
 
 
 @dataclass
@@ -81,7 +87,7 @@ def adaptation_term(values, spectrum, rating_value: int) -> int:
     """C_j = X_Aj - X_w with X_Aj = -10 lg sum 10^((L_ij - X_i)/10), rounded to integer."""
     x = np.round(np.asarray(values, float), 1)
     x_aj = -10 * np.log10(np.sum(10 ** ((spectrum - x) / 10)))
-    return int(np.round(x_aj - rating_value))
+    return round_half_up(x_aj - rating_value)
 
 
 def airborne_summary(values) -> dict:
@@ -91,3 +97,20 @@ def airborne_summary(values) -> dict:
             "w": r.value,
             "C": adaptation_term(values, SPECTRUM_1_PINK, r.value),
             "Ctr": adaptation_term(values, SPECTRUM_2_TRAFFIC, r.value)}
+
+
+def impact_adaptation_term(values, rating_value: int) -> int:
+    """C_I = L_n,sum - 15 dB - L_n,w  (ISO 717-2), rounded to an integer.
+
+    L_n,sum is the energy sum of the 1/3-octave values from 100 to 2500 Hz, using the
+    same values (to 0.1 dB) that were rated; rating_value is the integer L(n)(T),w.
+
+    Checked by the project owner against EN ISO 717-2:2021 clause A.2.1 (formulas A.1-A.3):
+    values given to one decimal place, energy sum over 100-2500 Hz, C_I = L'nT,sum - 15 -
+    L'nT,w, rounded to an integer. The standard's footnote warns that floating-point
+    rounding can differ by 1 dB in rare cases at exact .5 values.
+    Not implemented: the enlarged range (C_I,50-2500, C_I,63-2000) and octave bands.
+    """
+    v = _prepare(values)[CI_BANDS]
+    l_sum = 10 * np.log10(np.sum(10 ** (v / 10)))
+    return round_half_up(l_sum - 15 - rating_value)

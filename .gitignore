@@ -6,3 +6,6 @@ __pycache__/
 samples/*.SVL
 samples/*.svl
 samples/*.csv
+
+# building projects and their data (room names, client folders, measurements)
+projects/

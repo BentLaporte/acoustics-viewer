@@ -1,5 +1,5 @@
 numpy>=1.26
 pytest>=8.0
-# needed later for the viewer:
-# PySide6
-# pyqtgraph
+# viewer:
+PySide6>=6.6
+pyqtgraph>=0.13

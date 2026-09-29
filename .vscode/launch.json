@@ -7,6 +7,13 @@
       "request": "launch",
       "program": "${workspaceFolder}/run_airborne.py",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Viewer (GUI)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "gui",
+      "console": "integratedTerminal"
     }
   ]
 }
