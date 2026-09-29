@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Airborne DnT,w (sample files)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_airborne.py",
+      "console": "integratedTerminal"
+    }
+  ]
+}
