@@ -12,22 +12,17 @@ from calc.building import (AIRBORNE_BASES, IMPACT_BASES, Evaluated, Project, Roo
                            airborne_details_files, evaluate_project, impact_details_files,
                            load_project, save_project)
 
-from .building_dialogs import RequirementsDialog, RoomDialog, SituationDialog
+from .building_dialogs import ReportDialog, RequirementsDialog, RoomDialog, SituationDialog
+from calc.colors import style_of
 from calc.iso717 import BANDS
 
+from .thumbs import thumbnail
 from .widgets import FileRow, N_BANDS, band_axis, minus, num, pen
 
-PALETTE = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2",
-           "#17becf", "#bcbd22", "#7f7f7f"]
 ROW_ERROR, ROW_WARN = "#f5b7b1", "#fdebd0"
 CHECK_BG = {"complies": "#d5f5e3", "fails": "#f5b7b1", "inconclusive": "#fdebd0",
             "no_result": "#eaecee", "none": None}
 CHECK_FG = {"complies": "#1e8449", "fails": "#c0392b", "inconclusive": "#b9770e"}
-
-
-def style_of(index: int):
-    """Colour per measurement; from the 11th on the same colours are used with dashed lines."""
-    return PALETTE[index % len(PALETTE)], (index // len(PALETTE)) % 2 == 1
 
 
 def _cell(text, align=QtCore.Qt.AlignCenter, bg=None):
@@ -190,7 +185,8 @@ class BuildingPage(QtWidgets.QWidget):
 
         row = QtWidgets.QHBoxLayout()
         for text, slot in (("New", self.new_project), ("Open...", self.open_project),
-                           ("Save", self.save), ("Save as...", self.save_as)):
+                           ("Save", self.save), ("Save as...", self.save_as),
+                           ("Export PDF...", self.export_pdf)):
             b = QtWidgets.QPushButton(text)
             b.clicked.connect(slot)
             row.addWidget(b)
@@ -240,7 +236,8 @@ class BuildingPage(QtWidgets.QWidget):
 
         rooms_box = QtWidgets.QGroupBox("Rooms (source and receiving rooms)")
         rl = QtWidgets.QVBoxLayout(rooms_box)
-        self.rooms_table = _table(["Room", "Reverberation time", "Background"], stretch_col=1)
+        self.rooms_table = _table(["Room", "Reverberation time", "Background", "Photos"],
+                                  stretch_col=1)
         self.rooms_table.doubleClicked.connect(self.edit_room)
         rl.addWidget(self.rooms_table)
         rl.addLayout(self.buttons([("Add room...", self.add_room), ("Edit...", self.edit_room),
@@ -356,6 +353,13 @@ class BuildingPage(QtWidgets.QWidget):
             t.setItem(i, 1, _cell(self.files_text(r.rt_files) or "-"))
             t.setItem(i, 2, _cell("own: " + self.files_text(r.background_files)
                                   if r.background_files else "building"))
+            photos = _cell(str(len(r.photos)) if r.photos else "-")
+            if r.photos:                                   # first photo = main picture
+                pix = thumbnail(r.photos[0].path, QtCore.QSize(40, 30))
+                if pix is not None:
+                    photos.setIcon(QtGui.QIcon(pix))
+                photos.setToolTip("\n".join(Path(ph.path).name for ph in r.photos))
+            t.setItem(i, 3, photos)
         m = self.meas_table
         names = p.situation_names()
         reqs = [self.requirement_text("airborne", x.requirement) for x in p.airborne] + \
@@ -700,6 +704,53 @@ class BuildingPage(QtWidgets.QWidget):
         self.mark_dirty()
         self.populate_setup()
         self.refresh()
+
+    # ------------------------------------------------------------------ report
+    def export_pdf(self):
+        """Ask for the report details and a file, then write the PDF report."""
+        if not self.evaluated:
+            QtWidgets.QMessageBox.information(self, "Export PDF",
+                                              "Add measurements to the building first.")
+            return
+        try:                                   # imported here: the viewer starts faster without
+            from export.pdf_report import ReportOptions, build_pdf_report, default_report_name
+        except ImportError as exc:
+            QtWidgets.QMessageBox.warning(
+                self, "PDF export not available",
+                f"{exc}\n\nInstall the required libraries with:\npip install -r requirements.txt")
+            return
+        left_out = sum(1 for e in self.evaluated if (e.kind, e.name) in self.hidden)
+        dlg = ReportDialog(self.project, len(self.evaluated) - left_out, left_out, parent=self)
+        if not dlg.exec():
+            return
+        info = dlg.info()
+        if info != self.project.report:
+            self.project.report = info
+            self.mark_dirty()
+        folder = self.path.parent if self.path else Path(self.settings.value("project_dir", ""))
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save PDF report", str(folder / default_report_name(self.project)),
+            "PDF report (*.pdf)")
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        options = ReportOptions(per_measurement_pages=dlg.pages.isChecked(),
+                                per_band_tables=dlg.bands.isChecked(),
+                                room_photos=dlg.photos.isChecked(),
+                                file_dates=dlg.dates.isChecked(), date=dlg.report_date())
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            build_pdf_report(self.project, self.evaluated, path, options, self.hidden)
+        except Exception as exc:               # e.g. the file is open in a PDF viewer
+            QtWidgets.QMessageBox.warning(self, "Could not create the report",
+                                          f"{Path(path).name}: {exc}")
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self.message.emit(f"Report saved: {path}")
+        if dlg.open_after.isChecked():
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(path))
 
     # ------------------------------------------------------------------ project files
     def maybe_save(self) -> bool:

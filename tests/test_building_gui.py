@@ -480,3 +480,318 @@ def test_requirements_survive_save_and_open(app, settings, tmp_path):
     assert other.air_basis.currentData() == "wctr" and other.imp_basis.currentData() == "wci"
     assert other.imp_table.horizontalHeaderItem(4).text() == "Req. (L'nT,w + C_I)"
     assert other.imp_table.item(0, 4).text() == "\u2264 58 dB"
+
+
+# ------------------------------------------------------------------ PDF export
+class FakeReportDialog:
+    """Stands in for the modal report dialog."""
+    accepted = True
+    info_ = None
+    pages_ = True
+    bands_ = True
+    photos_ = True
+    dates_ = True
+    open_ = False
+    seen = None
+
+    def __init__(self, project, n_included, n_left_out, parent=None):
+        FakeReportDialog.seen = (n_included, n_left_out)
+        self.pages = _Box(FakeReportDialog.pages_)
+        self.bands = _Box(FakeReportDialog.bands_)
+        self.photos = _Box(FakeReportDialog.photos_)
+        self.dates = _Box(FakeReportDialog.dates_)
+        self.open_after = _Box(FakeReportDialog.open_)
+
+    def exec(self):
+        return FakeReportDialog.accepted
+
+    def info(self):
+        return FakeReportDialog.info_
+
+    def report_date(self):
+        import datetime as dt
+        return dt.date(2026, 9, 30)
+
+
+class _Box:
+    def __init__(self, value):
+        self.value = value
+
+    def isChecked(self):
+        return self.value
+
+
+def _patch_export(monkeypatch, path):
+    from PySide6 import QtGui, QtWidgets
+    from gui import building_page as bp
+    opened = []
+    monkeypatch.setattr(bp, "ReportDialog", FakeReportDialog)
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(path), "")))
+    monkeypatch.setattr(QtGui.QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url)))
+    return opened
+
+
+def test_export_pdf_writes_file_and_remembers_info(app, settings, tmp_path, monkeypatch):
+    pypdf = pytest.importorskip("pypdf")
+    from calc.building import ReportInfo
+    from gui.building_page import BuildingPage
+    page = BuildingPage(settings)
+    page.set_project(project(tmp_path))
+    FakeReportDialog.accepted, FakeReportDialog.open_ = True, True
+    FakeReportDialog.info_ = ReportInfo("Client X", "Street 5", "Me", "Some remarks")
+    opened = _patch_export(monkeypatch, tmp_path / "out")                 # no extension given
+    messages = []
+    page.message.connect(messages.append)
+    assert not page.dirty
+    page.export_pdf()
+    out = tmp_path / "out.pdf"                                            # .pdf added
+    assert out.exists() and out.read_bytes()[:5] == b"%PDF-"
+    assert page.project.report == FakeReportDialog.info_ and page.dirty    # stored in the project
+    assert FakeReportDialog.seen == (4, 0)
+    assert len(opened) == 1 and opened[0].toLocalFile() == str(out)
+    assert messages[-1].startswith("Report saved:")
+    text = " ".join(pypdf.PdfReader(str(out)).pages[0].extract_text().split())
+    assert "Client X" in text and "30 September 2026" in text
+    # the info survives saving and reopening the project
+    assert page.save_to(tmp_path / "b.json")
+    other = BuildingPage(settings)
+    assert other.open_path(tmp_path / "b.json") and other.project.report.client == "Client X"
+
+
+def test_export_pdf_respects_show_ticks_and_options(app, settings, tmp_path, monkeypatch):
+    pypdf = pytest.importorskip("pypdf")
+    from PySide6 import QtCore
+    from calc.building import ReportInfo
+    from gui.building_page import BuildingPage
+    page = BuildingPage(settings)
+    page.set_project(project(tmp_path))
+    page.air_table.item(1, 0).setCheckState(QtCore.Qt.Unchecked)           # hide "A to C ..."
+    FakeReportDialog.accepted, FakeReportDialog.open_ = True, False
+    FakeReportDialog.pages_, FakeReportDialog.bands_ = False, True
+    FakeReportDialog.info_ = ReportInfo()
+    opened = _patch_export(monkeypatch, tmp_path / "hidden.pdf")
+    page.export_pdf()
+    assert FakeReportDialog.seen == (3, 1) and not opened
+    reader = pypdf.PdfReader(str(tmp_path / "hidden.pdf"))
+    text = " ".join(" ".join(p.extract_text().split()) for p in reader.pages)
+    assert "louder speaker" not in text and "carpet" in text
+    assert len(reader.pages) == 4                                          # no per-measurement pages
+    FakeReportDialog.pages_ = True
+
+
+def test_export_pdf_cancel_and_empty_and_errors(app, settings, tmp_path, monkeypatch):
+    from PySide6 import QtWidgets
+    from calc.building import Project, ReportInfo
+    from gui.building_page import BuildingPage
+    shown = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: shown.append("info"))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: shown.append(a[2]))
+    page = BuildingPage(settings)
+    page.export_pdf()                                                       # nothing to export
+    assert shown == ["info"]
+    page.set_project(project(tmp_path))
+    FakeReportDialog.info_ = ReportInfo()
+    FakeReportDialog.accepted = False                                       # cancel in the dialog
+    _patch_export(monkeypatch, tmp_path / "never.pdf")
+    page.export_pdf()
+    assert not (tmp_path / "never.pdf").exists() and not page.dirty
+    FakeReportDialog.accepted = True                                        # folder does not exist
+    _patch_export(monkeypatch, tmp_path / "no_such_folder" / "x.pdf")
+    page.export_pdf()
+    assert len(shown) == 2 and "x.pdf" in shown[1]                          # warned, did not crash
+    assert QtWidgets.QApplication.overrideCursor() is None                  # cursor restored
+
+
+def test_report_dialog_widget(app, settings, tmp_path):
+    from PySide6 import QtCore, QtWidgets
+    from gui.building_dialogs import ReportDialog
+    p = project(tmp_path)
+    p.report.client, p.report.remarks = "Acme", "Note 1\nNote 2"
+    d = ReportDialog(p, n_included=7, n_left_out=2)
+    assert d.client.text() == "Acme" and d.remarks.toPlainText() == "Note 1\nNote 2"
+    assert d.pages.isChecked() and d.bands.isChecked() and d.open_after.isChecked()
+    d.location.setText("  Main St 1 ")
+    d.author.setText("Jo")
+    d.date.setDate(QtCore.QDate(2026, 10, 5))
+    info = d.info()
+    assert (info.client, info.location, info.author) == ("Acme", "Main St 1", "Jo")
+    assert info.remarks == "Note 1\nNote 2"
+    assert str(d.report_date()) == "2026-10-05"
+    labels = " ".join(w.text() for w in d.findChildren(QtWidgets.QLabel))
+    assert "7 measurement(s) will be included" in labels and "2 measurement(s)" in labels
+
+
+# ------------------------------------------------------------------ room photos
+def photo_files(tmp_path, n=3):
+    from helpers import make_photo
+    return [make_photo(tmp_path / f"p{i}.jpg", (400 + 10 * i, 300), (30 * i, 120, 200)) for i in range(n)]
+
+
+def test_room_dialog_photos_add_caption_move_remove(app, settings, tmp_path, monkeypatch):
+    from PySide6 import QtWidgets
+    from gui.building_dialogs import RoomDialog
+    files = photo_files(tmp_path)
+    warnings = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda parent, title, text: warnings.append(text))
+    dlg = RoomDialog(settings, [], None)
+    dlg.name.setText("Hall")
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames",
+                        staticmethod(lambda *a, **k: (files[:2], "")))
+    dlg.add_photos()
+    assert [p.path for p in dlg.room().photos] == files[:2] and not warnings
+    assert not dlg.photos.item(0).icon().isNull()                         # thumbnail shown
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames",        # one duplicate, one new
+                        staticmethod(lambda *a, **k: ([files[1], files[2]], "")))
+    dlg.add_photos()
+    assert [p.path for p in dlg.room().photos] == files                   # duplicate skipped
+    # caption
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getText", staticmethod(lambda *a, **k: ("  View from door ", True)))
+    dlg.photos.setCurrentRow(1)
+    dlg.edit_caption()
+    assert dlg.room().photos[1].caption == "View from door"
+    assert dlg.photos.item(1).text() == "View from door" and dlg.photos.item(0).text() == "p0.jpg"
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getText", staticmethod(lambda *a, **k: ("x", False)))
+    dlg.edit_caption()                                                    # cancelled: unchanged
+    assert dlg.room().photos[1].caption == "View from door"
+    # order: the first photo is the main picture
+    dlg.photos.setCurrentRow(2)
+    dlg.move_photo(-1)
+    dlg.move_photo(-1)
+    assert [p.path for p in dlg.room().photos] == [files[2], files[0], files[1]]
+    assert dlg.photos.currentRow() == 0
+    dlg.move_photo(-1)                                                    # already first: nothing
+    assert dlg.photos.currentRow() == 0
+    dlg.photos.setCurrentRow(2)
+    dlg.move_photo(1)                                                     # already last: nothing
+    assert [p.path for p in dlg.room().photos] == [files[2], files[0], files[1]]
+    dlg.photos.setCurrentRow(0)
+    dlg.remove_photo()
+    assert [p.path for p in dlg.room().photos] == [files[0], files[1]]
+    assert dlg.room().photos[1].caption == "View from door"               # captions follow their photo
+
+
+def test_room_dialog_rejects_unreadable_pictures_and_shows_missing_ones(app, settings, tmp_path, monkeypatch):
+    from PySide6 import QtWidgets
+    from calc.building import Photo, Room
+    from gui.building_dialogs import RoomDialog
+    warnings = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda parent, title, text: warnings.append(text))
+    bad = tmp_path / "notes.jpg"
+    bad.write_bytes(b"not a picture")
+    good = photo_files(tmp_path, 1)[0]
+    dlg = RoomDialog(settings, [], Room("R", photos=[Photo(str(tmp_path / "gone.jpg"), "Lost")]))
+    assert dlg.photos.count() == 1 and dlg.photos.item(0).text() == "Lost"     # kept, not dropped
+    assert "File not found" in dlg.photos.item(0).toolTip()
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames",
+                        staticmethod(lambda *a, **k: ([str(bad), good], "")))
+    dlg.add_photos()
+    assert [Path(p.path).name for p in dlg.room().photos] == ["gone.jpg", "p0.jpg"]
+    assert len(warnings) == 1 and "notes.jpg" in warnings[0]
+
+
+def test_room_dialog_without_photos_and_existing_room_keeps_them(app, settings, tmp_path):
+    from calc.building import Photo, Room
+    from gui.building_dialogs import RoomDialog
+    assert RoomDialog(settings, [], Room("Empty")).room().photos == []
+    files = photo_files(tmp_path, 2)
+    room = Room("Kitchen", photos=[Photo(files[0], "One"), Photo(files[1])])
+    out = RoomDialog(settings, [], room).room()
+    assert [(p.path, p.caption) for p in out.photos] == [(files[0], "One"), (files[1], "")]
+
+
+def test_rooms_table_shows_photo_count_and_thumbnail(app, settings, tmp_path):
+    from calc.building import Photo
+    from gui.building_page import BuildingPage
+    files = photo_files(tmp_path, 2)
+    p = project(tmp_path)
+    p.room("B").photos = [Photo(files[0]), Photo(files[1])]
+    page = BuildingPage(settings)
+    page.set_project(p)
+    t = page.rooms_table
+    by_name = {t.item(r, 0).text(): t.item(r, 3) for r in range(t.rowCount())}
+    assert by_name["A"].text() == "-" and by_name["B"].text() == "2"
+    assert not by_name["B"].icon().isNull() and by_name["A"].icon().isNull()
+    assert "p0.jpg" in by_name["B"].toolTip() and "p1.jpg" in by_name["B"].toolTip()
+
+
+def test_photos_survive_save_and_open_in_the_viewer(app, settings, tmp_path):
+    from calc.building import Photo
+    from gui.building_page import BuildingPage
+    files = photo_files(tmp_path, 1)
+    p = project(tmp_path)
+    p.room("A").photos = [Photo(files[0], "Main view")]
+    page = BuildingPage(settings)
+    page.set_project(p)
+    assert page.save_to(tmp_path / "with_photos.json")
+    other = BuildingPage(settings)
+    assert other.open_path(tmp_path / "with_photos.json")
+    assert other.project.room("A").photos[0].caption == "Main view"
+    assert Path(other.project.room("A").photos[0].path).samefile(files[0])
+
+
+def test_report_dialog_photo_option(app, settings, tmp_path):
+    from calc.building import Photo
+    from gui.building_dialogs import ReportDialog
+    p = project(tmp_path)
+    d = ReportDialog(p, 4, 0)
+    assert not d.photos.isEnabled() and not d.photos.isChecked()            # no photos yet
+    p.room("A").photos = [Photo(photo_files(tmp_path, 1)[0])]
+    d2 = ReportDialog(p, 4, 0)
+    assert d2.photos.isEnabled() and d2.photos.isChecked()
+    assert "1 available" in d2.photos.text()
+
+
+def test_export_passes_the_photo_option(app, settings, tmp_path, monkeypatch):
+    pytest.importorskip("pypdf")
+    from calc.building import Photo, ReportInfo
+    from gui import building_page as bp
+    p = project(tmp_path)
+    p.room("A").photos = [Photo(photo_files(tmp_path, 1)[0], "The source room")]
+    page = bp.BuildingPage(settings)
+    page.set_project(p)
+    FakeReportDialog.accepted, FakeReportDialog.open_ = True, False
+    FakeReportDialog.pages_, FakeReportDialog.bands_ = False, False
+    FakeReportDialog.info_ = ReportInfo()
+    _patch_export(monkeypatch, tmp_path / "ph.pdf")
+    import pypdf
+    for wanted in (True, False):
+        FakeReportDialog.photos_ = wanted
+        page.export_pdf()
+        text = " ".join(pg.extract_text() for pg in pypdf.PdfReader(str(tmp_path / "ph.pdf")).pages)
+        assert ("The source room" in text) is wanted
+    FakeReportDialog.photos_ = True
+
+
+def test_report_dialog_equipment_and_dates_options(app, settings, tmp_path):
+    from gui.building_dialogs import ReportDialog
+    p = project(tmp_path)
+    p.report.equipment = "Calibrator X\nLoudspeaker Y"
+    d = ReportDialog(p, 4, 0)
+    assert d.equipment.toPlainText() == "Calibrator X\nLoudspeaker Y"
+    assert d.dates.isChecked()                                        # dates are on by default
+    d.equipment.setPlainText("  Tapping machine Z \n")
+    assert d.info().equipment == "Tapping machine Z"
+    d.dates.setChecked(False)
+    assert not d.dates.isChecked()
+
+
+def test_export_passes_the_dates_option_and_stores_the_equipment(app, settings, tmp_path, monkeypatch):
+    pypdf = pytest.importorskip("pypdf")
+    from calc.building import ReportInfo
+    from gui import building_page as bp
+    page = bp.BuildingPage(settings)
+    page.set_project(project(tmp_path))
+    FakeReportDialog.accepted, FakeReportDialog.open_ = True, False
+    FakeReportDialog.pages_, FakeReportDialog.bands_, FakeReportDialog.photos_ = True, False, True
+    FakeReportDialog.info_ = ReportInfo(equipment="Calibrator X")
+    _patch_export(monkeypatch, tmp_path / "d.pdf")
+    for wanted in (True, False):
+        FakeReportDialog.dates_ = wanted
+        page.export_pdf()
+        text = " ".join(" ".join(pg.extract_text().split())
+                        for pg in pypdf.PdfReader(str(tmp_path / "d.pdf")).pages)
+        assert ("22/09/2026 12:11" in text) is wanted
+        assert "Calibrator X" in text and "SV 977D" in text           # equipment is always there
+    assert page.project.report.equipment == "Calibrator X"            # remembered in the project
+    FakeReportDialog.dates_ = True

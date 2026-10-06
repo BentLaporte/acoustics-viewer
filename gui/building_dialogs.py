@@ -1,11 +1,15 @@
 """Dialogs to add and edit rooms and measurements of a building."""
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+import datetime as dt
+from pathlib import Path
+
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from calc.building import (AIRBORNE_BASES, IMPACT_BASES, AirborneSituation, ImpactSituation,
-                           Project, Room, situation_name)
+                           Photo, Project, ReportInfo, Room, situation_name)
 
+from .thumbs import IMAGE_FILTER, thumbnail
 from .widgets import FileRow
 
 
@@ -20,6 +24,7 @@ class RoomDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Room" if room is None else f"Room {room.name}")
         self.setMinimumWidth(650)
+        self.setMinimumHeight(560)
         self.taken = set(taken_names)
         lay = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
@@ -43,11 +48,107 @@ class RoomDialog(QtWidgets.QDialog):
         self.bg.setEnabled(self.own_bg.isChecked())
         self.own_bg.toggled.connect(self.bg.setEnabled)
         lay.addWidget(self.bg)
+
+        box = QtWidgets.QGroupBox("Photos (they appear in the report)")
+        bl = QtWidgets.QVBoxLayout(box)
+        self.settings = settings
+        self.photos = QtWidgets.QListWidget()
+        self.photos.setIconSize(QtCore.QSize(96, 72))
+        self.photos.setMinimumHeight(180)
+        self.photos.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.photos.itemDoubleClicked.connect(lambda _item: self.edit_caption())
+        bl.addWidget(self.photos)
+        row = QtWidgets.QHBoxLayout()
+        for text, slot in (("Add photos...", self.add_photos), ("Caption...", self.edit_caption),
+                           ("Move up", lambda: self.move_photo(-1)),
+                           ("Move down", lambda: self.move_photo(1)),
+                           ("Remove", self.remove_photo)):
+            b = QtWidgets.QPushButton(text)
+            b.clicked.connect(lambda _=False, f=slot: f())
+            row.addWidget(b)
+        row.addStretch(1)
+        bl.addLayout(row)
+        hint = QtWidgets.QLabel("The first photo is the main picture of the room. Double-click "
+                                "a photo to give it a caption.")
+        hint.setStyleSheet("color: #666666;")
+        bl.addWidget(hint)
+        lay.addWidget(box)
+        for ph in (room.photos if room else []):
+            self.add_item(ph.path, ph.caption)
+
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok |
                                              QtWidgets.QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
+
+    # ---- photos -----------------------------------------------------------------------
+    def add_item(self, path: str, caption: str = "") -> QtWidgets.QListWidgetItem:
+        item = QtWidgets.QListWidgetItem()
+        item.setData(QtCore.Qt.UserRole, path)
+        item.setData(QtCore.Qt.UserRole + 1, caption)
+        pix = thumbnail(path)
+        if pix is not None:
+            item.setIcon(QtGui.QIcon(pix))
+        self.photos.addItem(item)
+        self.refresh_item(item)
+        return item
+
+    @staticmethod
+    def refresh_item(item):
+        path, caption = item.data(QtCore.Qt.UserRole), item.data(QtCore.Qt.UserRole + 1)
+        item.setText(caption or Path(path).name)
+        item.setToolTip(path)
+        missing = not Path(path).exists()
+        item.setForeground(QtGui.QColor("#c0392b" if missing else
+                                        "#1b2631" if caption else "#7f8c8d"))
+        if missing:
+            item.setToolTip(f"File not found: {path}")
+
+    def add_photos(self):
+        start = self.settings.value("photo_dir", "")
+        chosen, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Add photos", start, IMAGE_FILTER)
+        if not chosen:
+            return
+        self.settings.setValue("photo_dir", str(Path(chosen[0]).parent))
+        have = {self.photos.item(i).data(QtCore.Qt.UserRole) for i in range(self.photos.count())}
+        unreadable = []
+        for path in chosen:
+            if path in have:
+                continue
+            if thumbnail(path) is None:
+                unreadable.append(Path(path).name)
+                continue
+            self.add_item(path)
+            have.add(path)
+        if unreadable:
+            _warn(self, "These files could not be read as pictures (supported: JPEG, PNG, BMP, "
+                        "TIFF, WebP):\n" + "\n".join(unreadable))
+
+    def edit_caption(self):
+        item = self.photos.currentItem()
+        if item is None:
+            return
+        text, ok = QtWidgets.QInputDialog.getText(
+            self, "Caption", "Caption of the photo (empty = none):",
+            text=item.data(QtCore.Qt.UserRole + 1))
+        if ok:
+            item.setData(QtCore.Qt.UserRole + 1, text.strip())
+            self.refresh_item(item)
+
+    def move_photo(self, step: int):
+        row = self.photos.currentRow()
+        new = row + step
+        if row < 0 or not 0 <= new < self.photos.count():
+            return
+        item = self.photos.takeItem(row)
+        self.photos.insertItem(new, item)
+        self.photos.setCurrentRow(new)
+
+    def remove_photo(self):
+        row = self.photos.currentRow()
+        if row >= 0:
+            self.photos.takeItem(row)
 
     def accept(self):
         name = self.name.text().strip()
@@ -58,8 +159,11 @@ class RoomDialog(QtWidgets.QDialog):
         super().accept()
 
     def room(self) -> Room:
+        photos = [Photo(self.photos.item(i).data(QtCore.Qt.UserRole),
+                        self.photos.item(i).data(QtCore.Qt.UserRole + 1))
+                  for i in range(self.photos.count())]
         return Room(self.name.text().strip(), self.rt.paths(),
-                    self.bg.paths() if self.own_bg.isChecked() else [])
+                    self.bg.paths() if self.own_bg.isChecked() else [], photos)
 
 
 class RoomCombo(QtWidgets.QWidget):
@@ -273,3 +377,73 @@ class SituationDialog(QtWidgets.QDialog):
                                      self.requirement.value())
         return ImpactSituation(self.receiver.value(), self.f1.paths(), self.source.value(),
                                comment, self.requirement.value())
+
+
+class ReportDialog(QtWidgets.QDialog):
+    """Information for the first page of the PDF report and what to put in it."""
+
+    def __init__(self, project: Project, n_included: int, n_left_out: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export PDF report")
+        self.setMinimumWidth(560)
+        lay = QtWidgets.QVBoxLayout(self)
+        info = project.report
+        form = QtWidgets.QFormLayout()
+        self.client = QtWidgets.QLineEdit(info.client)
+        self.location = QtWidgets.QLineEdit(info.location)
+        self.author = QtWidgets.QLineEdit(info.author)
+        self.date = QtWidgets.QDateEdit(QtCore.QDate.currentDate())
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("d MMMM yyyy")
+        self.remarks = QtWidgets.QPlainTextEdit(info.remarks)
+        self.remarks.setPlaceholderText("Optional: conditions during the measurements, "
+                                        "measurement method, remarks for the reader...")
+        self.remarks.setFixedHeight(90)
+        self.equipment = QtWidgets.QPlainTextEdit(info.equipment)
+        self.equipment.setPlaceholderText("Optional, one per line: calibrator, loudspeaker, "
+                                          "tapping machine... (the sound level meters are "
+                                          "listed automatically from the files)")
+        self.equipment.setFixedHeight(70)
+        form.addRow("Client:", self.client)
+        form.addRow("Location:", self.location)
+        form.addRow("Prepared by:", self.author)
+        form.addRow("Report date:", self.date)
+        form.addRow("Remarks:", self.remarks)
+        form.addRow("Other equipment:", self.equipment)
+        lay.addLayout(form)
+        self.pages = QtWidgets.QCheckBox("One page per measurement (chart and values per band)")
+        self.bands = QtWidgets.QCheckBox("Values per band under the comparison curves")
+        n_photos = sum(len(r.photos) for r in project.rooms)
+        self.photos = QtWidgets.QCheckBox(
+            f"Room photos ({n_photos} available): a photo page and small photos per measurement")
+        self.photos.setChecked(n_photos > 0)
+        self.photos.setEnabled(n_photos > 0)
+        self.dates = QtWidgets.QCheckBox("Date and time of each measurement file")
+        self.open_after = QtWidgets.QCheckBox("Open the PDF when it is ready")
+        for box in (self.pages, self.bands, self.photos, self.dates, self.open_after):
+            if box is not self.photos:
+                box.setChecked(True)
+            lay.addWidget(box)
+        text = f"{n_included} measurement(s) will be included."
+        if n_left_out:
+            text += (f" {n_left_out} measurement(s) that are unticked ('Show') in the overview "
+                     "are left out.")
+        label = QtWidgets.QLabel(text)
+        label.setWordWrap(True)
+        label.setStyleSheet("color: #666666;")
+        lay.addWidget(label)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok |
+                                             QtWidgets.QDialogButtonBox.Cancel)
+        buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("Choose file...")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+
+    def info(self) -> ReportInfo:
+        return ReportInfo(self.client.text().strip(), self.location.text().strip(),
+                          self.author.text().strip(), self.remarks.toPlainText().strip(),
+                          self.equipment.toPlainText().strip())
+
+    def report_date(self) -> dt.date:
+        d = self.date.date()
+        return dt.date(d.year(), d.month(), d.day())

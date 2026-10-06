@@ -1,9 +1,63 @@
 # SVL layout as decoded so far
 
-Reverse-engineered from six files of a Svantek SVAN 977 (magic `SvanPC`), and
-cross-checked against SvanPC++ CSV exports and pasted SvanPC++ result tables.
+Reverse-engineered from files of two Svantek instrument types, SV 977D and SV 977C (magic
+`SvanPC`), and cross-checked against SvanPC++ CSV exports and pasted SvanPC++ result tables (977D
+only, see below).
 Nothing here comes from Svantek documentation. All words are little-endian
 int16; levels are in units of 0.01 dB and can be negative.
+
+## Instrument types
+
+The unit header (tag 0x0E01 at 0x20, then block 0x0A02) holds, at word 15 after 0x20, a class
+code, then the model (977 for both), the serial number (2 words) and a number that is probably
+the firmware version:
+
+| | class code | firmware | records |
+|---|---|---|---|
+| SV 977D | 31 | 218 | plain |
+| SV 977C | 21 | 223 | framed, see below |
+
+The letters C / D are not stored as text; both mappings are confirmed by the SvanPC++ header
+information: the 977C file says "Device type: SVAN 977C, serial 98053, internal software version
+2.23.1" (class code 21, firmware 223), the 977D file "Device type: SV 977D, serial 99942, internal
+software version 2.18.1" (class code 31, firmware 218).
+
+The reader recognises the layout from the buffer header (below), not from the class code. Found
+by scanning for a word with low byte 0x0F whose data size matches the file:
+
+| | buffer header tag | header words | data starts | per record |
+|---|---|---|---|---|
+| 977D | 0x120F | 18 | 0x5C8 + 36 = 0x5EC | 157 words |
+| 977C | 0x130F | 19 | 0x5C8 + 38 = 0x5EE | 159 words |
+
+The last word of the 977C buffer header is the record length (159). Each 977C record is the
+977D record (157 words) with one word in front and one behind it. These framing words are
+0xC600 + record length in front and 0xCE00 + record length behind (0xC69F and 0xCE9F for 159
+words); the reader checks them for every record.
+The stored whole-file spectrum sits 124 words behind the last record in both types, with the same
+tag words (12875, 257) in front of it.
+
+Verification status: 977D as described under 'Spectrum files'. 977C: one level file (10 s LZeq
+of SvanPC++ against our energy average: max 0.007 dB; the instrument's own stored spectrum equals
+the SvanPC++ values) and one reverberation file (every EDT, RT20, RT30 of the 21 bands and the
+three totals equal SvanPC++). SvanPC++ itself refuses the CSV export of the 977C files with
+"Unknown record length"; an Excel export of a window works.
+
+## Measurement date and time
+The block with id 0x04 ('global settings', at 0xF8) starts with a date word and a time word: date =
+(year - 2000) << 9 | month << 5 | day, time = seconds since midnight / 2. Checked against SvanPC++
+(header information or CSV) for seven files: six match to the second, the 977C file shows 11:08:35
+in SvanPC++ and 11:08:34 here, because an odd second cannot be stored (two-second resolution).
+This is the 'Measurement time / date' of the SvanPC++ header information. The unit header holds a
+second stamp (same encoding, a few seconds earlier: the creation of the file).
+
+## Buffer header, preamble
+The buffer header also states the number of records the buffer can hold (word 7 and 8 after the
+tag). If the measurement stopped before the buffer was full (647 of 850 records, 380 of 400) the
+first record is preceded by 4 words (four values like 0xB0xx); if the buffer was exactly full
+(400 of 400, and the 10 of 10 of the level files) there is no preamble. The reader takes the
+expected value from the header and verifies it on the data (977D records start with a flag word 0,
+977C records are framed), so a misalignment cannot go unnoticed.
 
 ## Common
 - 0x22: measurement name (ASCII, space padded). Serial number near 0xE8.
@@ -19,21 +73,35 @@ then 3 x (45 band levels + 3 broadband values A, C, Z).
 - The 3rd spectrum of each second is LZeq(1 s), verified (energy average over
   the file matches SvanPC++ 'Total results' within 0.05 dB, and the value the
   instrument stores itself within 0.008 dB).
-- The 1st and 2nd spectra are probably max and min (totals ~103 dB and ~98 dB
-  vs ~101 dB for LZeq in every second, in all files). NOT verified.
+- The 1st and 2nd spectra are Lmax and Lmin: the header says the logger holds 'Leq, Lmin, Lmax'
+  and in every second of every file seen the totals are max >= Leq >= min. Not compared with
+  SvanPC++ values (only the Leq is).
 - Whole-file LZeq spectrum stored at word 2452 (45 bands + LAeq, LCeq, LZeq),
   preceded by the words 12875, 257.
 
-## Reverberation time file (L11 / B_L11): 31 bands, 20 ms logger
-647 records of 35 words (flag, 31 bands 20 Hz-20 kHz, 3 broadband A, C, Z),
-starting 0x2C bytes after the buffer tag. Directly after the last record:
-header `..., 45, 3, first, last` and 9-word rows (flag, EDT, RT20, RT30,
-RTUser in ms, 4 unused; -1 = not available) for bands first..last of the
-45-band table (18..38 = 50 Hz-5 kHz) followed by 3 rows for totals A, C, Z.
-Verified value-for-value against the SvanPC++ table. SvanPC's RTResult equals
-the RT30 column in the sample; what selects it is unknown.
+## Reverberation time file (L11 / B_L11, 977C_RT): 31 bands, 20 ms logger
+The buffer starts with 4 words before the first record. Records of 35 words (flag, 31 bands
+20 Hz-20 kHz, 3 broadband A, C, Z). On the 977D the records follow each other (the first one
+at tag + 0x2C); on the 977C each record is 37 words: one word in front (0xC625 = -14811 in the
+sample), the 35 words, one word behind (0xCE25 = -12763), and the buffer header states 37. The framing words are 0xC625 and 0xCE25, i.e. again 0xC600 / 0xCE00 plus the record length.
+Directly after the last record, block 27 'rt60 results': `..., 27, x, 80, 45, 3, first, last`
+and 9-word rows (flag, EDT, RT20, RT30, RTUser in ms, 4 unused; -1 = not available) for bands
+first..last of the 45-band table (18..38 = 50 Hz-5 kHz) followed by 3 rows for totals A, C, Z.
+Verified value-for-value against the SvanPC++ table, for a 977D file and for a 977C file.
+SvanPC's RTResult equals the RT30 column in the 977D sample; what selects it is unknown.
+
+The 977C file has one more block in front of block 27: id 116, same `45, 3, 18, 38` header and
+24 rows of 7 words (five values around 240-310, then two values that look like levels x100, e.g.
+7846 and 2224). Not decoded and not used; the reader finds block 27 by its id.
+
+## Decoded but unused
+The 12 words after the flag are, for the three profiles, [peak, max, min, eq] (header 'Logger
+contents': LApeak/LAFmax/LAFmin/LAeq, LApeak/LASmax/LASmin/LAeq, LZpeak/LZFmax/LZFmin/LZeq for the
+977C example). eq equals LAeq / LZeq of the Leq spectrum; the two A profiles share peak and eq.
+max and min are detector values that can lag at sudden changes (a quiet second after a loud one
+can show a high max).
 
 ## Not decoded
-The 12 extra words per second, date/time in the binary header (the CSV export
-shows them as text, format yy/mm/dd), calibration data, other instruments or
-settings (other band counts, step times, profiles).
+Calibration data, other settings (other band counts, step times, profiles). A level file of a
+measurement that was stopped early (fewer records than the buffer holds) has not been seen; the
+reader would apply the 4-word preamble rule above and refuse the file if the data does not fit.

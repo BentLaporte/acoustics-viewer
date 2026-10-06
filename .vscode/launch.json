@@ -5,8 +5,35 @@
       "name": "Airborne DnT,w (sample files)",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/run_airborne.py",
-      "console": "integratedTerminal"
+      "module": "calc",
+      "console": "integratedTerminal",
+      "args": [
+        "airborne",
+        "--source",
+        "samples/A_L2.SVL",
+        "--receiver",
+        "samples/B_L2.SVL",
+        "--background",
+        "samples/C_L20.SVL",
+        "--rt",
+        "samples/B_L11.SVL"
+      ]
+    },
+    {
+      "name": "Impact L'nT,w (sample files)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "calc",
+      "console": "integratedTerminal",
+      "args": [
+        "impact",
+        "--tapping",
+        "samples/B_L4.SVL",
+        "--background",
+        "samples/C_L20.SVL",
+        "--rt",
+        "samples/B_L11.SVL"
+      ]
     },
     {
       "name": "Viewer (GUI)",

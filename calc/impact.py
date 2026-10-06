@@ -8,7 +8,7 @@ import numpy as np
 from .iso16283 import lnt
 from .iso717 import BANDS, Rating, impact_adaptation_term, rate_impact
 from .levels import LIMIT, background_correction
-from .measurements import as_list, load_levels, load_rt
+from .measurements import load_levels_info, load_rt_info
 
 
 @dataclass
@@ -23,6 +23,7 @@ class ImpactResult:
     lnt: np.ndarray          # standardized impact sound pressure level L'nT
     names: dict              # role -> list of file names (one per position / decay)
     t_counts: np.ndarray | None = None   # decays that contributed to T, per band
+    info: dict | None = None             # role -> list of FileInfo (name, date and time, instrument)
     rating: Rating | None = None   # ISO 717-2 rating of L'nT (None if a band is missing)
     ci: int | None = None          # adaptation term C_I (100 - 2500 Hz)
 
@@ -37,9 +38,10 @@ def compute_impact(tapping, background, rt, rt_kind: str = "t30") -> ImpactResul
     Every argument is one path or a list of paths (tapping machine positions are
     energy-averaged, reverberation time decays are averaged arithmetically per band).
     """
-    li_raw = load_levels(tapping)
-    lb = load_levels(background)
-    t, t_counts = load_rt(rt, rt_kind)
+    li_raw, i_tapping = load_levels_info(tapping)
+    lb, i_background = load_levels_info(background)
+    t, t_counts, i_rt = load_rt_info(rt, rt_kind)
+    info = {"tapping": i_tapping, "background": i_background, "rt": i_rt}
 
     li, status = background_correction(li_raw, lb)
     lnt_values = lnt(li, t)
@@ -50,6 +52,5 @@ def compute_impact(tapping, background, rt, rt_kind: str = "t30") -> ImpactResul
     return ImpactResult(
         bands=BANDS.copy(), li_raw=li_raw, lb=lb, li=li, status=status, t=t,
         t_kind=rt_kind.lower(), lnt=lnt_values,
-        names={k: [p.name for p in as_list(v)] for k, v in
-               (("tapping", tapping), ("background", background), ("rt", rt))},
-        t_counts=t_counts, rating=rating, ci=ci)
+        names={k: [x.name for x in v] for k, v in info.items()},
+        t_counts=t_counts, info=info, rating=rating, ci=ci)

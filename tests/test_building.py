@@ -309,3 +309,130 @@ def test_old_files_without_requirement_load_with_defaults(tmp_path):
     q = load_project(path)
     assert q.airborne[0].requirement is None
     assert (q.airborne_basis, q.impact_basis) == ("w", "w")               # unknown value -> default
+
+
+# ------------------------------------------------------------------ room photos
+def test_room_photos_roundtrip_with_relative_paths(tmp_path):
+    from calc.building import Photo
+    job = tmp_path / "job"
+    (job / "photos").mkdir(parents=True)
+    for n in ("a.jpg", "b.jpg"):
+        (job / "photos" / n).write_bytes(b"x")
+    p = Project(name="Photos")
+    p.rooms = [Room("Kitchen", photos=[Photo(str(job / "photos" / "b.jpg"), "From the door"),
+                                       Photo(str(job / "photos" / "a.jpg"))]), Room("Hall")]
+    save_project(p, job / "p.json")
+    raw = json.loads((job / "p.json").read_text())
+    kitchen = next(r for r in raw["rooms"] if r["name"] == "Kitchen")
+    assert kitchen["photos"] == [{"path": "photos/b.jpg", "caption": "From the door"},
+                                 {"path": "photos/a.jpg", "caption": ""}]          # order kept
+    assert next(r for r in raw["rooms"] if r["name"] == "Hall")["photos"] == []
+    moved = tmp_path / "moved"
+    shutil.move(str(job), str(moved))
+    q = load_project(moved / "p.json")
+    k = q.room("Kitchen")
+    assert [(Path(ph.path).name, ph.caption) for ph in k.photos] == \
+        [("b.jpg", "From the door"), ("a.jpg", "")]
+    assert all(Path(ph.path).exists() for ph in k.photos)                           # still found
+    assert q.room("Hall").photos == []
+
+
+def test_projects_without_photos_still_load(tmp_path):
+    old = {"schema": 2, "name": "X", "rt_kind": "t30", "background_files": [],
+           "rooms": [{"name": "A", "rt_files": [], "background_files": []}],
+           "airborne": [], "impact": []}
+    path = tmp_path / "x.json"
+    path.write_text(json.dumps(old))
+    assert load_project(path).room("A").photos == []
+
+
+# ------------------------------------------------------------------ two instrument types
+C_FILE = S / "977C_example.SVL"
+needs_c = pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and C_FILE.exists()),
+                             reason="sample files missing")
+
+
+@needs_c
+def test_source_level_from_a_977c_and_receiver_from_a_977d():
+    from calc.measurements import load_levels
+    p = basic_project()
+    p.airborne.append(AirborneSituation("A", "B", [str(C_FILE)], [f("B_L2.SVL")], "977C source"))
+    d_source, c_source = evaluate_project(p)[:2]
+    assert c_source.ok and c_source.error is None
+    assert np.allclose(c_source.result.l1, load_levels(C_FILE))        # the 977C level is used
+    assert np.allclose(c_source.result.l2, d_source.result.l2)         # same receiver
+    # the two sources differ in level, so DnT differs by exactly that difference per band
+    diff = load_levels(f("A_L2.SVL")) - load_levels(C_FILE)
+    assert np.allclose(d_source.curve - c_source.curve, diff, atol=1e-9)
+
+
+@needs_c
+def test_977c_files_work_in_every_level_role(tmp_path):
+    p = basic_project()
+    p.airborne[0].receiver_files = [str(C_FILE)]                       # as receiving room level
+    p.impact[0].tapping_files = [str(C_FILE)]                          # as tapping level
+    p.background_files = [str(C_FILE)]                                 # even as background
+    ev = evaluate_project(p)
+    assert all(e.error is None for e in ev)
+
+
+@needs_c
+def test_a_level_file_used_as_reverberation_file_gives_a_clear_row_message():
+    p = basic_project()
+    p.rooms[1].rt_files = [str(C_FILE)]                                # a level file as RT file
+    ev = evaluate_project(p)
+    for e in ev:
+        assert not e.ok and "977C_example.SVL" in e.error and "reverberation time" in e.error
+
+
+RT_C = S / "977C_RT.SVL"
+
+
+@pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and RT_C.exists()),
+                    reason="sample files missing")
+def test_building_with_a_977c_reverberation_file():
+    from svl.rt import read_rt
+    p = basic_project()
+    p.rooms.append(Room("C", rt_files=[str(RT_C)]))
+    p.airborne.append(AirborneSituation("A", "C", [f("A_L2.SVL")], [f("B_L2.SVL")], "977C decay"))
+    p.impact.append(ImpactSituation("C", [f("B_L4.SVL")], "A", "977C decay"))
+    ev = {e.name: e for e in evaluate_project(p)}
+    a, i = ev["airborne A to C (977C decay)"], ev["impact A to C (977C decay)"]
+    assert a.ok and i.ok and a.error is None and i.error is None
+    t = read_rt(RT_C).at([100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+                          2000, 2500, 3150], "t30")
+    assert np.allclose(a.result.t, t) and np.allclose(i.result.t, t)
+    # a shorter reverberation time (0.6 s here, 1.3 s in room B) means a different DnT
+    b = ev["airborne A to B"]
+    assert np.allclose(a.result.d, b.result.d)                         # same levels ...
+    expected = a.result.d + 10 * np.log10(t / 0.5)
+    assert np.allclose(a.curve, expected) and not np.allclose(a.curve, b.curve)   # ... other T
+
+
+@pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and RT_C.exists()),
+                    reason="sample files missing")
+def test_decays_of_both_instruments_are_averaged():
+    from calc.measurements import load_rt
+    d, _ = load_rt(f("B_L11.SVL"), "t30")
+    c, _ = load_rt(str(RT_C), "t30")
+    both, n = load_rt([f("B_L11.SVL"), str(RT_C)], "t30")
+    assert (n == 2).all() and np.allclose(both, (d + c) / 2)           # arithmetic mean per band
+
+
+@needs_c
+def test_variants_of_a_977c_file_keep_the_framing(tmp_path):
+    from svl.parser import find_buffer, read_svl
+    quiet = make_variant(C_FILE, tmp_path / "c_quiet.SVL", -6.0)
+    a, b = read_svl(C_FILE), read_svl(quiet)
+    assert find_buffer(open(quiet, "rb").read()).header_words == 0x13
+    assert np.allclose(b.leq_total() - a.leq_total(), -6.0, atol=0.02)
+    assert np.allclose(b.stored_total - a.stored_total, -6.0, atol=0.011)
+
+
+@needs_samples
+def test_equipment_used_lists_instruments_with_roles():
+    from calc.building import equipment_used
+    used = equipment_used(evaluate_project(basic_project()))
+    assert used == [("SV 977D", 99942, ("source",)),
+                    ("SV 977D", 156226, ("receiver", "tapping", "background", "rt"))]
+    assert equipment_used([]) == []

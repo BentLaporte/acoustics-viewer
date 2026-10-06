@@ -1,8 +1,20 @@
 """Reader for Svantek .SVL files (SVAN 977 logger/spectrum files).
 
-Reverse-engineered from a single sample (L1.SVL, 10 s, 1/3 octave, 1 s steps)
-and cross-checked against the SvanPC++ "Total results" tab. Only the parts
-listed below are decoded; everything else is ignored.
+Two instrument types are handled. Both are recognised from the data itself (the size of the
+buffer header), the instrument type in the unit header is reported separately:
+
+  * SV 977D (unit header class code 31, firmware 218 = software 2.18.1; the SvanPC++ header
+    information says "Device type: SV 977D"): decoded from several files and cross-checked
+    against the SvanPC++ "Total results" tab.
+  * SV 977C (class code 21, firmware 223 = software 2.23.1; the SvanPC++ header information
+    says "Device type: SVAN 977C"): the same record contents, but the buffer header is one word
+    longer (tag 0x130F instead of 0x120F, its last word = record length 159) and every record is
+    framed by one word before and one word after it (0xC600 / 0xCE00 + the record length).
+    Decoded from one level file and one reverberation file; the level file agrees with the
+    SvanPC++ 10 s LZeq to 0.007 dB and the reverberation table with SvanPC++ exactly (see
+    tests/test_svanpc_977c.py).
+
+Only the parts listed below are decoded; everything else is ignored.
 
 Verified against SvanPC++:
   * all values are uint16, little-endian, in units of 0.01 dB
@@ -14,15 +26,26 @@ Verified against SvanPC++:
     all seconds reproduces SvanPC's 10 s LZeq to within 0.05 dB
   * the 3 broadband values after the LZeq spectrum are (LAeq, LCeq, LZeq)
 
-NOT verified: what the 1st and 2nd spectrum are (their totals are ~103 dB and
-~98 dB against ~100.7 dB for LZeq, so probably max and min), the 12 extra
-words, and the header date/time. Other instruments or settings (other band
-counts, other step times, other profiles) will need more work.
+Content of a record, both types:
+  * the logger holds the 1/3-octave Leq, Lmin and Lmax (header: "Octave 1/3 in logger"); in the
+    file they come as [Lmax, Lmin, Leq]. The Leq is confirmed by SvanPC++; Lmax and Lmin follow
+    from the header and from their levels (max >= Leq >= min in every second of every file seen)
+    but have not been compared with SvanPC++ values.
+  * the 12 words after the flag are, for the three profiles of the instrument, [peak, max, min,
+    eq] (header: "Logger contents": LApeak/LAFmax/LAFmin/LAeq, LApeak/LASmax/LASmin/LAeq,
+    LZpeak/LZFmax/LZFmin/LZeq). The eq values equal LAeq and LZeq of the Leq spectrum; the peak is
+    the same in the two A-weighted profiles. Not used by the calculations.
+
+Measurement date and time: see read_measurement_time (two-second resolution).
+
+Not decoded: calibration data. Other settings (other band counts, step times, profiles) will
+need more work.
 """
 from __future__ import annotations
 
 import struct
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -31,8 +54,17 @@ MAGIC = b"SvanPC"
 N_BANDS = 45
 BLOCK_WORDS = 1 + 12 + 3 * (N_BANDS + 3)     # 157 words per second
 DATA_START = 0x5EC                            # byte offset of first block (empirical)
-BUFFER_TAG = 0x120F                           # "buffer header" tag, at 0x5C8 in the sample
+BUFFER_TAG = 0x120F                           # 977D "buffer header" tag, at 0x5C8
+BUFFER_TAG_977C = 0x130F                      # 977C: one word longer
 LEQ_INDEX = 2                                 # which of the 3 spectra is LZeq
+STORED_GAP = 124                              # words between the last record and the stored total
+
+# Instrument type, from the 'class code' in the unit header (word 15 after the file header).
+# Both types report model 977; the class code is what differs (and the firmware). Both are
+# confirmed by the SvanPC++ header information: a 977C file ("Device type SVAN 977C", serial
+# 98053, software 2.23.1) has class code 21; a 977D file ("Device type SV 977D", serial 99942,
+# software 2.18.1) has 31. The other 977D serial (156226) has 31 as well.
+DEVICE_CLASS = {31: "SV 977D", 21: "SV 977C"}
 
 # 1/3-octave centre frequencies, index n -> 10**(n/10) Hz*1e-3, n = -31 .. 13
 BAND_INDICES = np.arange(-31, -31 + N_BANDS)
@@ -51,6 +83,125 @@ ISO_SLICE = slice(int(np.where(NOMINAL_HZ == 100)[0][0]),
 
 class SvlError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class Device:
+    """The instrument that made the file, from the unit header."""
+    class_code: int          # 31 on the SV 977D files, 21 on the SV 977C file
+    model: int               # 977
+    serial: int              # e.g. 99942
+    firmware: int            # 218 / 223, probably firmware 2.18 / 2.23
+
+    @property
+    def label(self) -> str:
+        return DEVICE_CLASS.get(self.class_code, f"SV {self.model} (class {self.class_code})")
+
+
+def read_device(raw: bytes) -> Device:
+    """Instrument type, serial number and firmware from the unit header (tag 0x0E01 at 0x20)."""
+    if len(raw) < 0x50 or raw[:6] != MAGIC:
+        raise SvlError("not an SvanPC file (bad magic)")
+    w = struct.unpack_from("<10H", raw, 0x20 + 2 * 15)
+    return Device(class_code=w[0], model=w[1], serial=w[2] + 65536 * w[3], firmware=w[4])
+
+
+def read_measurement_time(raw: bytes) -> datetime | None:
+    """Date and time of the measurement, from the 'global settings' block (id 0x04, 0xF8).
+
+    The block starts with a date word (year-2000 in bits 9-15, month in bits 5-8, day in bits
+    0-4) and a time word (seconds since midnight / 2). The two-second resolution means that an
+    odd second is shown one second early (SvanPC++ 11:08:35, stored 11:08:34). This is the
+    'Measurement date / time' of the SvanPC++ header information; the unit header holds a
+    slightly earlier stamp (a few seconds before). None if the block or the values are not
+    plausible.
+    """
+    pos = 0x20
+    for _ in range(40):                              # walk the blocks: (length << 8) | id
+        if pos + 8 > len(raw):
+            return None
+        head = struct.unpack_from("<H", raw, pos)[0]
+        length, block_id = head >> 8, head & 0xFF
+        if length == 0:
+            return None
+        if block_id == 0x04:
+            date, tick = struct.unpack_from("<HH", raw, pos + 2)
+            seconds = tick * 2
+            try:
+                return datetime(2000 + (date >> 9), (date >> 5) & 0xF, date & 0x1F,
+                                seconds // 3600, seconds % 3600 // 60, seconds % 60)
+            except ValueError:
+                return None
+        pos += 2 * length
+    return None
+
+
+@dataclass(frozen=True)
+class BufferInfo:
+    """Where the records are and how they are framed."""
+    tag_pos: int             # byte offset of the buffer header
+    header_words: int        # length of the buffer header in words (18 = 977D, 19 = 977C)
+    data_start: int          # byte offset of the first record (frame included)
+    size: int                # bytes of buffer data
+    n_records: int
+    last_header_word: int    # on the 977C: the record length in words (159)
+    max_records: int = 0     # records the buffer can hold; fewer stored = measurement stopped early
+
+
+FRAME_PREFIX, FRAME_SUFFIX = 0xC600, 0xCE00     # SV 977C framing words: marker + record length
+PREAMBLE_WORDS = 4       # words in front of the first record when the buffer was not filled up
+
+
+def find_preamble(allw: np.ndarray, first: int, n_records: int, stride: int, frame: int,
+                  max_records: int) -> int:
+    """Words between the buffer header and the first record: 4 if the measurement stopped
+    before the buffer was full (fewer records than the buffer holds), otherwise 0.
+
+    The rule comes from the header, and is then checked on the data itself so that a
+    misalignment can never go unnoticed: 977C records must be framed correctly, 977D records
+    must start with a zero flag word. If the expected value does not pass, the other one is
+    tried; if neither passes the layout is unknown and an SvlError is raised."""
+    expected = PREAMBLE_WORDS if n_records < max_records else 0
+    for pre in (expected, PREAMBLE_WORDS - expected):
+        top = first + pre
+        if top + n_records * stride > len(allw):
+            continue
+        if frame:
+            ok = check_framing(allw, top, stride, n_records)
+        else:
+            ok = bool(np.all(allw[top + stride * np.arange(n_records)] == 0))
+        if ok:
+            return pre
+    raise SvlError("the records are not laid out as expected (unknown buffer layout)")
+
+
+def check_framing(allw: np.ndarray, start: int, stride: int, n_records: int) -> bool:
+    """True if every record starting at word `start` is framed as on the SV 977C: the word in
+    front is 0xC6nn and the word behind it 0xCEnn, nn = the record length (e.g. 0xC69F, 0xCE9F
+    for 159 words). A mismatch means the file is not laid out as assumed."""
+    k = start + stride * np.arange(n_records)
+    if k[-1] + stride > len(allw):
+        return False
+    pre, post = allw[k].astype(np.uint16), allw[k + stride - 1].astype(np.uint16)
+    return bool(np.all(pre == FRAME_PREFIX | stride) and np.all(post == FRAME_SUFFIX | stride))
+
+
+def find_buffer(raw: bytes) -> BufferInfo:
+    """Locate the buffer header. A candidate must be consistent with the file: the data that
+    follows the header has exactly the size the header states."""
+    w = np.frombuffer(raw, dtype="<u2", count=len(raw) // 2)
+    for pos in range(0x280 // 2, min(len(w) - 24, 0x900 // 2)):
+        tag = int(w[pos])
+        hdr = tag >> 8
+        if tag & 0xFF != 0x0F or hdr not in (0x12, 0x13):
+            continue
+        size = int(w[pos + 3]) + 65536 * int(w[pos + 4])
+        n_rec = int(w[pos + 5]) + 65536 * int(w[pos + 6])
+        max_rec = int(w[pos + 7]) + 65536 * int(w[pos + 8])
+        start = (pos + hdr) * 2
+        if size == len(raw) - start and 0 < n_rec < 100000:
+            return BufferInfo(pos * 2, hdr, start, size, n_rec, int(w[pos + hdr - 1]), max_rec)
+    raise SvlError("buffer header not found (unknown file layout)")
 
 
 def read_octave_setup(raw: bytes) -> tuple[int, int]:
@@ -87,6 +238,24 @@ class Second:
         return self.spectra[LEQ_INDEX]
 
     @property
+    def lmax_spectrum(self) -> np.ndarray:
+        """1/3-octave Lmax of this second (identified from the header and the levels, not
+        compared with SvanPC++ values; the Leq spectrum is)."""
+        return self.spectra[0]
+
+    @property
+    def lmin_spectrum(self) -> np.ndarray:
+        return self.spectra[1]
+
+    @property
+    def profiles(self) -> np.ndarray:
+        """Shape (3, 4): for the three profiles the logged values [peak, max, min, eq]. In the
+        977C example the profiles are A fast, A slow and Z fast (LApeak/LAFmax/LAFmin/LAeq,
+        LApeak/LASmax/LASmin/LAeq, LZpeak/LZFmax/LZFmin/LZeq). The eq column equals LAeq / LZeq of
+        the Leq spectrum; max and min are detector values that can lag at sudden level changes."""
+        return self.extra.reshape(3, 4)
+
+    @property
     def leq_broadband(self) -> np.ndarray:
         """(LAeq, LCeq, LZeq) of this second."""
         return self.broadband[LEQ_INDEX]
@@ -101,6 +270,8 @@ class SvlFile:
     path: Path
     name: str
     serial: str
+    device: Device | None = None
+    measured_at: datetime | None = None
     seconds: list[Second] = field(default_factory=list)
     stored_total: np.ndarray | None = None      # 45 bands, LZeq over the whole file
     stored_total_abc: np.ndarray | None = None  # (LAeq, LCeq, LZeq) of the whole file
@@ -130,6 +301,7 @@ def energy_mean(levels, axis=0):
 
 
 def read_svl(path) -> SvlFile:
+    """Read a level-type file (3 one-third-octave spectra per second) of an SV 977C or 977D."""
     path = Path(path)
     raw = path.read_bytes()
     if raw[:6] != MAGIC:
@@ -137,24 +309,32 @@ def read_svl(path) -> SvlFile:
 
     name = raw[0x22:0x2A].decode("ascii", "replace").strip()
     serial = raw[0xE8:0xF1].decode("ascii", "replace").strip()
+    try:
+        device = read_device(raw)
+        buf = find_buffer(raw)
+    except SvlError as exc:
+        raise SvlError(f"{path.name}: {exc}") from None
 
-    # buffer header: tag, 1, 0, size(u32), n_records(u32), n_records(u32), ...
-    tag_pos = raw.find(struct.pack("<H", BUFFER_TAG), 0x280)
-    if tag_pos < 0:
-        raise SvlError(f"{path.name}: buffer header not found")
-    _size, n_rec, n_rec2 = struct.unpack_from("<3I", raw, tag_pos + 6)
-    if n_rec != n_rec2 or not (0 < n_rec < 100000):
-        raise SvlError(f"{path.name}: implausible record count {n_rec}/{n_rec2}")
+    # record length: the 977D has no framing, the 977C states 159 words in its header
+    stride = BLOCK_WORDS if buf.header_words == 0x12 else buf.last_header_word
+    frame = stride - BLOCK_WORDS                 # words around the record: 0 (977D) or 2 (977C)
+    if frame not in (0, 2):
+        raise SvlError(f"{path.name}: unknown record framing ({stride} words per record)")
+    if buf.size < buf.n_records * stride * 2:
+        raise SvlError(f"{path.name}: file too short for {buf.n_records} records")
 
-    need = DATA_START + n_rec * BLOCK_WORDS * 2
-    if need > len(raw):
-        raise SvlError(f"{path.name}: file too short for {n_rec} records")
-
-    words = np.frombuffer(raw, dtype="<i2", count=n_rec * BLOCK_WORDS,
-                          offset=DATA_START).astype(float) / 100.0
-    f = SvlFile(path=path, name=name, serial=serial)
-    for k in range(n_rec):
-        blk = words[k * BLOCK_WORDS:(k + 1) * BLOCK_WORDS]
+    allw = np.frombuffer(raw, dtype="<i2", count=len(raw) // 2)
+    try:
+        pre = find_preamble(allw, buf.data_start // 2, buf.n_records, stride, frame,
+                            buf.max_records)
+    except SvlError as exc:
+        raise SvlError(f"{path.name}: this does not look like a level file ({exc})") from None
+    first = buf.data_start // 2 + pre
+    f = SvlFile(path=path, name=name, serial=serial, device=device,
+                measured_at=read_measurement_time(raw))
+    for k in range(buf.n_records):
+        at = first + k * stride + frame // 2     # skip the word in front of the record
+        blk = allw[at:at + BLOCK_WORDS].astype(float) / 100.0
         extra = blk[1:13]
         body = blk[13:].reshape(3, N_BANDS + 3)
         spectra, bb = body[:, :N_BANDS], body[:, N_BANDS:]
@@ -162,11 +342,10 @@ def read_svl(path) -> SvlFile:
             raise SvlError(f"{path.name}: record {k} does not match the expected layout")
         f.seconds.append(Second(spectra=spectra.copy(), broadband=bb.copy(),
                                 extra=extra.copy()))
-    # whole-file LZeq spectrum that the instrument stored itself (same place in all
-    # four sample files; guarded by the two tag words in front of it)
-    i = STORED_TOTAL_WORD
-    allw = np.frombuffer(raw, dtype="<i2", count=len(raw) // 2)
-    if (len(allw) > i + N_BANDS + 3 and tuple(allw[i - 2:i]) == STORED_TAG):
+    # whole-file LZeq spectrum that the instrument stored itself, a fixed distance behind the
+    # last record; guarded by the two tag words in front of it
+    i = first + buf.n_records * stride + STORED_GAP
+    if len(allw) > i + N_BANDS + 3 and tuple(allw[i - 2:i]) == STORED_TAG:
         f.stored_total = allw[i:i + N_BANDS] / 100.0
         f.stored_total_abc = allw[i + N_BANDS:i + N_BANDS + 3] / 100.0
     return f

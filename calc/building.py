@@ -48,10 +48,18 @@ def situation_name(kind: str, source_room: str, receiver_room: str, comment: str
 
 
 @dataclass
+class Photo:
+    """A picture of a room; it ends up in the report. Only the path is stored."""
+    path: str
+    caption: str = ""
+
+
+@dataclass
 class Room:
     name: str
     rt_files: list[str] = field(default_factory=list)
     background_files: list[str] = field(default_factory=list)   # empty = building background
+    photos: list[Photo] = field(default_factory=list)           # first photo = main picture
 
 
 @dataclass
@@ -86,6 +94,16 @@ class ImpactSituation:
 
 
 @dataclass
+class ReportInfo:
+    """Free text that goes on the first page of the PDF report."""
+    client: str = ""
+    location: str = ""
+    author: str = ""
+    remarks: str = ""
+    equipment: str = ""             # other equipment, one item per line (calibrator, loudspeaker...)
+
+
+@dataclass
 class Project:
     name: str = "Building"
     background_files: list[str] = field(default_factory=list)
@@ -95,6 +113,7 @@ class Project:
     rooms: list[Room] = field(default_factory=list)
     airborne: list[AirborneSituation] = field(default_factory=list)
     impact: list[ImpactSituation] = field(default_factory=list)
+    report: ReportInfo = field(default_factory=ReportInfo)
 
     def room(self, name: str) -> Room | None:
         return next((r for r in self.rooms if r.name == name), None)
@@ -281,6 +300,23 @@ def _error_text(exc: Exception) -> str:
     return str(exc) or exc.__class__.__name__
 
 
+def equipment_used(evaluated) -> list[tuple[str, int, tuple[str, ...]]]:
+    """The measuring instruments behind the files of the given measurements.
+
+    Returns (instrument type, serial number, roles) sorted by type and serial; roles are the
+    file roles it was used for ('source', 'receiver', 'tapping', 'background', 'rt')."""
+    found: dict[tuple[str, int], set] = {}
+    for e in evaluated:
+        if e.result is None or not e.result.info:
+            continue
+        for role, infos in e.result.info.items():
+            for i in infos:
+                if i.instrument and i.serial is not None:
+                    found.setdefault((i.instrument, i.serial), set()).add(role)
+    order = {"source": 0, "receiver": 1, "tapping": 2, "background": 3, "rt": 4}
+    return [(t, s, tuple(sorted(r, key=order.get))) for (t, s), r in sorted(found.items())]
+
+
 def evaluate_project(project: Project) -> list[Evaluated]:
     """Evaluate all airborne measurements, then all impact measurements (entry order)."""
     names = project.situation_names()
@@ -324,11 +360,16 @@ def project_to_dict(project: Project, base: Path) -> dict:
         "schema": SCHEMA_VERSION,
         "name": project.name,
         "rt_kind": project.rt_kind,
+        "report": {"client": project.report.client, "location": project.report.location,
+                   "author": project.report.author, "remarks": project.report.remarks,
+                   "equipment": project.report.equipment},
         "airborne_basis": project.airborne_basis,
         "impact_basis": project.impact_basis,
         "background_files": _rel(project.background_files, base),
         "rooms": [{"name": r.name, "rt_files": _rel(r.rt_files, base),
-                   "background_files": _rel(r.background_files, base)}
+                   "background_files": _rel(r.background_files, base),
+                   "photos": [{"path": _rel([ph.path], base)[0], "caption": ph.caption}
+                              for ph in r.photos]}
                   for r in project.rooms],
         "airborne": [{"source_room": s.source_room, "receiver_room": s.receiver_room,
                       "comment": s.comment, "requirement": s.requirement,
@@ -366,7 +407,9 @@ def project_from_dict(d: dict, base: Path) -> Project:
         impact_basis=basis("impact_basis", IMPACT_BASES),
         background_files=_abs(d.get("background_files", []), base),
         rooms=[Room(r["name"], _abs(r.get("rt_files", []), base),
-                    _abs(r.get("background_files", []), base)) for r in d.get("rooms", [])],
+                    _abs(r.get("background_files", []), base),
+                    [Photo(_abs([ph["path"]], base)[0], ph.get("caption", ""))
+                     for ph in r.get("photos", [])]) for r in d.get("rooms", [])],
         airborne=[AirborneSituation(s["source_room"], s["receiver_room"],
                                     _abs(s.get("source_files", []), base),
                                     _abs(s.get("receiver_files", []), base), comment(s),
@@ -375,6 +418,10 @@ def project_from_dict(d: dict, base: Path) -> Project:
         impact=[ImpactSituation(s["receiver_room"], _abs(s.get("tapping_files", []), base),
                                 s.get("tapping_room", ""), comment(s), s.get("requirement"))
                 for s in d.get("impact", [])])
+    rep = d.get("report", {})
+    project.report = ReportInfo(rep.get("client", ""), rep.get("location", ""),
+                                rep.get("author", ""), rep.get("remarks", ""),
+                                rep.get("equipment", ""))
     project.sort_rooms()
     return project
 

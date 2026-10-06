@@ -74,3 +74,53 @@ def test_at_iso_bands():
 def test_result_kind_validation():
     with pytest.raises(ValueError):
         read_rt(SVL).result("t60")
+
+
+def test_rt_file_reports_its_instrument():
+    r = read_rt(SVL)
+    assert r.device.label == "SV 977D" and r.device.serial == 156226
+
+
+# ------------------------------------------------------------------ SV 977C reverberation file
+RT_C = SAMPLES / "977C_RT.SVL"
+needs_rt_c = pytest.mark.skipif(not RT_C.exists(), reason="977C reverberation sample missing")
+
+
+@needs_rt_c
+def test_977c_rt_file_structure():
+    """Structure of the 977C reverberation file (values: tests/test_svanpc_977c.py)."""
+    r = read_rt(RT_C)
+    assert r.device.label == "SV 977C" and r.device.serial == 98053
+    assert r.levels.shape == (380, 31) and r.broadband.shape == (380, 3)
+    assert r.band_hz[0] == 20 and r.band_hz[-1] == 20000
+    assert r.levels.min() > -30 and r.levels.max() < 120                 # no misaligned words
+    # the level history is a clean decay: loud while the source runs, then falling
+    z = r.broadband[:, 2]
+    assert z[:20].min() > 100 and z.min() < 45                           # source off after ~5 s
+    assert np.all(np.diff(r.time_s) > 0) and r.time_s[1] == pytest.approx(0.02)
+    # the stored table has the 21 bands 50 Hz - 5 kHz plus the totals A, C, Z, like the 977D
+    assert list(r.rt_hz[[0, -1]]) == [50, 5000] and len(r.rt_hz) == 21
+    assert len(r.total_t30) == 3 and not np.isnan(r.total_t30).any()
+    for arr in (r.t20, r.t30):
+        assert np.all((arr > 0.1) & (arr < 10))                          # plausible seconds
+    bands = [100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150]
+    t30 = r.at(bands, "t30")
+    assert not np.isnan(t30).any() and 0.4 < t30.mean() < 1.0
+
+
+@needs_rt_c
+def test_977c_rt_values_as_decoded_today():
+    """A few values of the table, which equals the SvanPC++ one (tests/test_svanpc_977c.py)."""
+    r = read_rt(RT_C)
+    row = {float(f): (e, a, b) for f, e, a, b in zip(r.rt_hz, r.edt, r.t20, r.t30)}
+    assert row[50.0] == pytest.approx((0.461, 1.118, 1.273))
+    assert r.total_t30 == pytest.approx([0.586, 0.594, 0.599])
+    assert r.t30[0] == pytest.approx(1.273) and r.t20[0] == pytest.approx(1.118)
+
+
+def test_level_files_are_not_accepted_as_reverberation_files():
+    from svl.parser import SvlError
+    for name in ("A_L2.SVL", "977C_example.SVL"):
+        if (SAMPLES / name).exists():
+            with pytest.raises(SvlError, match=name):
+                read_rt(SAMPLES / name)

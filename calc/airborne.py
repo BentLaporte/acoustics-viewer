@@ -8,7 +8,7 @@ import numpy as np
 from .iso16283 import dnt
 from .iso717 import BANDS, Rating, airborne_summary
 from .levels import LIMIT, background_correction
-from .measurements import as_list, load_levels, load_rt
+from .measurements import load_levels_info, load_rt_info
 
 
 @dataclass
@@ -25,6 +25,7 @@ class AirborneResult:
     dnt: np.ndarray          # standardized level difference (NaN where T missing)
     names: dict              # role -> list of file names (one per position / decay)
     t_counts: np.ndarray | None = None   # decays that contributed to T, per band
+    info: dict | None = None             # role -> list of FileInfo (name, date and time, instrument)
     rating: Rating | None = None   # ISO 717-1 rating of DnT (None if a band is missing)
     c: int | None = None           # adaptation term C
     ctr: int | None = None         # adaptation term Ctr
@@ -41,10 +42,11 @@ def compute_airborne(source, receiver, background, rt, rt_kind: str = "t30") -> 
     energy-averaged (positions); several reverberation time files are averaged
     arithmetically per band (decays).
     """
-    l1 = load_levels(source)
-    l2_raw = load_levels(receiver)
-    lb = load_levels(background)
-    t, t_counts = load_rt(rt, rt_kind)
+    l1, i_source = load_levels_info(source)
+    l2_raw, i_receiver = load_levels_info(receiver)
+    lb, i_background = load_levels_info(background)
+    t, t_counts, i_rt = load_rt_info(rt, rt_kind)
+    info = {"source": i_source, "receiver": i_receiver, "background": i_background, "rt": i_rt}
 
     l2, status = background_correction(l2_raw, lb)
     d = l1 - l2
@@ -56,7 +58,5 @@ def compute_airborne(source, receiver, background, rt, rt_kind: str = "t30") -> 
     return AirborneResult(
         bands=BANDS.copy(), l1=l1, l2_raw=l2_raw, lb=lb, l2=l2, status=status,
         t=t, t_kind=rt_kind.lower(), d=d, dnt=dnt_values,
-        names={k: [p.name for p in as_list(v)] for k, v in
-               (("source", source), ("receiver", receiver), ("background", background),
-                ("rt", rt))},
-        t_counts=t_counts, rating=rating, c=c, ctr=ctr)
+        names={k: [x.name for x in v] for k, v in info.items()},
+        t_counts=t_counts, info=info, rating=rating, c=c, ctr=ctr)

@@ -9,3 +9,15 @@ samples/*.csv
 
 # building projects and their data (room names, client folders, measurements)
 projects/
+
+# reports for clients
+*.pdf
+
+# photos of rooms (client property)
+*.jpg
+*.JPG
+*.jpeg
+*.JPEG
+
+# Excel files (exports and reports for clients)
+*.xlsx
