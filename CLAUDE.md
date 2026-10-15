@@ -43,22 +43,23 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
 
 Real `.SVL` files live in `samples/` (git-ignored). Tests that need missing files skip. Names the
 tests expect: `A_L1`, `A_L2`, `B_L2`, `B_L4`, `C_L20`, `B_L11`, `B_L15`, `977C_example`,
-`977C_RT`, plus `L1.SVL`. Known gap on this laptop: `B_L4.SVL` is named `B.L4.SVL`, and the
-977C files and a few others are missing, so about 24 tests skip. SvanPC++ reference values are
-hard-coded in the tests, so no CSV files are needed.
+`977C_RT`, plus `L1.SVL`. All of them are present on this laptop (Windows). SvanPC++ reference
+values are hard-coded in the tests, so no CSV files are needed.
 
-## Status (8 Oct 2026)
+## Status (15 Oct 2026)
 
 All six roadmap steps exist: band spectra, rating curve with deviations, impact + C_I, averaging
 over several files, whole-building comparison, Dutch PDF report with switches, command line.
-Last test run: 188 passed, 24 skipped.
+Development moved from Cowork (Linux) to Claude Code on Windows; tests must pass on both, so
+compare paths as `Path` objects, not strings. Last test run (Windows, `.venv` Python 3.13):
+211 passed, 1 skipped (no sample band close to the background).
 
 Open items, in rough order:
 
 1. Excel export of the building comparison (reuse the switches registry).
 2. End-to-end hand check of one real airborne and one real impact measurement against an
    independent calculation (Bent will do this later).
-3. Viewer UX review with screenshots once samples are available; the export dialog is about
+3. Viewer UX review with screenshots (samples are now available); the export dialog is about
    800 px tall, check it on the smallest laptop screen.
 4. Bent to review the Dutch terms in the report; band headers "1,25k" / "3,15k" wrap onto two
    lines in the per-band table.

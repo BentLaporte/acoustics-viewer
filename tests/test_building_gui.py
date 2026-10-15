@@ -557,7 +557,7 @@ def test_export_pdf_writes_file_and_remembers_info(app, settings, tmp_path, monk
     assert out.exists() and out.read_bytes()[:5] == b"%PDF-"
     assert page.project.report == FakeReportDialog.info_ and page.dirty    # stored in the project
     assert FakeReportDialog.seen == (4, 0)
-    assert len(opened) == 1 and opened[0].toLocalFile() == str(out)
+    assert len(opened) == 1 and Path(opened[0].toLocalFile()) == out   # Path: Qt gives "/" on Windows too
     assert messages[-1].startswith("Report saved:")
     text = " ".join(pypdf.PdfReader(str(out)).pages[0].extract_text().split())
     assert "Client X" in text and "30 september 2026" in text
