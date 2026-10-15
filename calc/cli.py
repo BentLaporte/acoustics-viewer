@@ -315,14 +315,15 @@ def cmd_building(args) -> int:
     _emit(text, args)
     if args.pdf:
         try:
-            from export.pdf_report import ReportOptions, build_pdf_report
+            from export.pdf_report import build_pdf_report
+            from export.report_options import TOGGLES, ReportOptions
         except ImportError as exc:
             raise CliError(f"PDF export needs reportlab and matplotlib: {exc}") from None
         when = dt.date.fromisoformat(args.date) if args.date else None
-        options = ReportOptions(per_measurement_pages=not args.no_measurement_pages,
-                                per_band_tables=not args.no_band_tables,
-                                room_photos=not args.no_photos, file_dates=not args.no_dates,
-                                date=when)
+        # the choices saved in the project (made in the viewer) apply; a flag switches a part off
+        saved = ReportOptions.from_dict(project.report_options).to_dict()
+        off = {t.key for t in TOGGLES if getattr(args, f"off_{t.key}", False)}
+        options = ReportOptions(**{k: v and k not in off for k, v in saved.items()}, date=when)
         try:
             build_pdf_report(project, evs, args.pdf, options)
         except OSError as exc:
@@ -351,6 +352,21 @@ def _common(p, formats=("text", "json", "csv")):
     p.add_argument("--strict", action="store_true",
                    help="exit status 1 if a requirement is not met or not conclusive, or a "
                         "measurement could not be calculated")
+
+
+# the flag of every PDF switch (export/report_options.py); older names kept for existing scripts
+_FLAG_NAMES = {"per_measurement_pages": "--no-measurement-pages",
+               "per_band_tables": "--no-band-tables", "room_photos": "--no-photos",
+               "file_dates": "--no-dates"}
+
+
+def _report_flags(parser) -> None:
+    """--no-<part> for every switch of the PDF report; they act on top of the project's choices."""
+    from export.report_options import TOGGLES
+    for t in TOGGLES:
+        flag = _FLAG_NAMES.get(t.key, "--no-" + t.key.replace("_", "-"))
+        parser.add_argument(flag, dest=f"off_{t.key}", action="store_true",
+                            help=f"PDF: leave out: {t.label[0].lower() + t.label[1:]}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -385,10 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("project", metavar="PROJECT.json")
     _common(b)
     b.add_argument("--pdf", metavar="FILE", help="also write the PDF report")
-    b.add_argument("--no-measurement-pages", action="store_true", help="PDF: leave out the page per measurement")
-    b.add_argument("--no-band-tables", action="store_true", help="PDF: leave out the values per band under the curves")
-    b.add_argument("--no-photos", action="store_true", help="PDF: leave out the room photos")
-    b.add_argument("--no-dates", action="store_true", help="PDF: leave out the date and time of the files")
+    _report_flags(b)
     b.add_argument("--date", metavar="YYYY-MM-DD", help="PDF: report date (default today)")
 
     n = sub.add_parser("info", help="show what an SVL file contains")

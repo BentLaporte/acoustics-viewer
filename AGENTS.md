@@ -46,6 +46,7 @@ Numbers in the JSON are plain floats/ints, `null` where a value is missing (neve
 
 ## Conventions
 
-English in code and UI, Dutch only in user data. Levels in dB, times in seconds, bands 100-3150 Hz
+English in code and UI, Dutch only in user data and in the PDF report (`export/report_text.py`
+is the one place for its wording). Levels in dB, times in seconds, bands 100-3150 Hz
 (16 bands). Measurements are named `<type> <source> to <receiver> (<comment>)`. Project files
 carry `schema` 2 and use paths relative to the project file.

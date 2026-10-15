@@ -43,7 +43,11 @@ Several files after one option are averaged: `--receiver B.L1.SVL B.L2.SVL B.L3.
 
 `building PROJECT.json`: `--format`, `--output`, `--strict` (exit 1 if any measurement fails,
 is not conclusive or could not be calculated), `--pdf FILE`, `--no-measurement-pages`,
-`--no-band-tables`, `--no-photos`, `--no-dates`, `--date YYYY-MM-DD` (report date).
+`--no-band-tables`, `--no-photos`, `--no-dates`, `--no-requirements`, `--no-term-c`,
+`--no-term-ctr`, `--no-term-ci`, `--no-summary`, `--no-remarks`, `--no-equipment`,
+`--no-notes` (each leaves that part out of the PDF; the choices saved in the project from the
+viewer apply first, a flag only switches a part off), `--date YYYY-MM-DD` (report date). The
+PDF is in Dutch.
 
 `info SVL...`: `--format text|json`, `--output`.
 

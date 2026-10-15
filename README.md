@@ -64,7 +64,7 @@ as an arithmetic mean per band. The number of measurement positions is not check
 | `calc/building.py` | rooms, measurements, requirements, project file (`.json`), evaluation of a building |
 | `calc/results.py` | results as plain dictionaries (the JSON of the command line) |
 | `calc/cli.py` | the command line (`python -m calc`) |
-| `export/` | PDF report (`pdf_report.py`), charts, room photos |
+| `export/` | PDF report (`pdf_report.py`), its Dutch wording (`report_text.py`), the switches for what it contains (`report_options.py`), charts, room photos |
 | `gui/` | the viewer (PySide6 + pyqtgraph) |
 | `docs/cli.md` | command line reference and JSON layout; `docs/example-airborne.json` is an example |
 | `docs/svl-format.md` | what is known about the SVL file layout and how well it is verified |
@@ -104,6 +104,16 @@ the rating chart, the values per band and the files that were used, each with th
 of its measurement (optional). File names only, never folder paths. Needs `reportlab`,
 `matplotlib`, `Pillow` (in `requirements.txt`). Written by the viewer ("Export PDF...") or by
 `python -m calc building PROJECT.json --pdf FILE`.
+
+The report is **in Dutch** (all fixed wording is in `export/report_text.py`; decimal comma, Dutch
+dates). What it contains is chosen with switches in the export dialog: requirements and
+pass / fail, the adaptation terms C, Ctr and C_I, the summary sentence, remarks, equipment, the
+notes (Toelichting), room photos, one page per measurement, values per band and file dates. The
+choices are saved in the project file (`report_options`) and used again by the command line,
+where `--no-<part>` switches a part off. With requirements off, nothing about requirements is
+left anywhere in the report. A term that a requirement is checked against (basis `DnT,w + C`)
+stays visible while requirements are on. To add a switch, see the top of
+`export/report_options.py`.
 
 ## Instruments
 

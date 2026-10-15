@@ -260,7 +260,7 @@ def test_building_pdf_options(capsys, tmp_path):
     code, _, err = run(capsys, "building", path, "--pdf", out, "--date", "2026-10-01")
     assert code == 0 and "report written" in err and out.read_bytes()[:5] == b"%PDF-"
     pages = [" ".join(p.extract_text().split()) for p in pypdf.PdfReader(str(out)).pages]
-    assert "1 October 2026" in pages[0] and len(pages) == 6
+    assert "1 oktober 2026" in pages[0] and len(pages) == 6
     assert "A_L2.SVL (22/09/2026 12:11)" in " ".join(pages)
     short = tmp_path / "s.pdf"
     run(capsys, "building", path, "--pdf", short, "--no-dates", "--no-measurement-pages",
@@ -269,6 +269,35 @@ def test_building_pdf_options(capsys, tmp_path):
     assert len(pages) == 4 and "22/09/2026" not in " ".join(pages)
     code, _, err = run(capsys, "building", path, "--pdf", tmp_path / "no_folder" / "x.pdf")
     assert code == 2 and "could not write" in err
+
+
+@needs_samples
+def test_building_pdf_switches(capsys, tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    from calc.building import load_project, save_project
+    path = building(tmp_path)
+
+    def text(pdf):
+        return " ".join(" ".join(p.extract_text().split()) for p in pypdf.PdfReader(str(pdf)).pages)
+
+    full = tmp_path / "full.pdf"
+    run(capsys, "building", path, "--pdf", full)
+    assert "Apparatuur" in text(full) and "Toelichting" in text(full) and "Voldoet" in text(full)
+    out = tmp_path / "a.pdf"
+    run(capsys, "building", path, "--pdf", out, "--no-summary", "--no-equipment", "--no-notes",
+        "--no-requirements")
+    got = text(out)
+    assert "Apparatuur" not in got and "Toelichting" not in got and "Voldoet" not in got
+    assert "Eisen:" not in got and "Geluidsisolatiemetingen" in got
+    # the choices saved in the project (made in the viewer) are the starting point of the command line
+    project = load_project(path)
+    project.report_options = {"equipment": False, "notes": False}
+    saved = tmp_path / "saved.json"
+    save_project(project, saved)
+    out2 = tmp_path / "b.pdf"
+    run(capsys, "building", saved, "--pdf", out2)
+    got2 = text(out2)
+    assert "Apparatuur" not in got2 and "Toelichting" not in got2 and "Voldoet" in got2
 
 
 # ------------------------------------------------------------------ documentation stays in sync

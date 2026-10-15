@@ -492,6 +492,7 @@ class FakeReportDialog:
     photos_ = True
     dates_ = True
     open_ = False
+    extra_ = {}              # other switches, e.g. {'requirements': False}
     seen = None
 
     def __init__(self, project, n_included, n_left_out, parent=None):
@@ -511,6 +512,13 @@ class FakeReportDialog:
     def report_date(self):
         import datetime as dt
         return dt.date(2026, 9, 30)
+
+    def report_options(self):
+        from export.report_options import ReportOptions
+        return ReportOptions(per_measurement_pages=self.pages.isChecked(),
+                             per_band_tables=self.bands.isChecked(),
+                             room_photos=self.photos.isChecked(), file_dates=self.dates.isChecked(),
+                             **FakeReportDialog.extra_, date=self.report_date())
 
 
 class _Box:
@@ -552,7 +560,7 @@ def test_export_pdf_writes_file_and_remembers_info(app, settings, tmp_path, monk
     assert len(opened) == 1 and opened[0].toLocalFile() == str(out)
     assert messages[-1].startswith("Report saved:")
     text = " ".join(pypdf.PdfReader(str(out)).pages[0].extract_text().split())
-    assert "Client X" in text and "30 September 2026" in text
+    assert "Client X" in text and "30 september 2026" in text
     # the info survives saving and reopening the project
     assert page.save_to(tmp_path / "b.json")
     other = BuildingPage(settings)
@@ -795,3 +803,79 @@ def test_export_passes_the_dates_option_and_stores_the_equipment(app, settings, 
         assert "Calibrator X" in text and "SV 977D" in text           # equipment is always there
     assert page.project.report.equipment == "Calibrator X"            # remembered in the project
     FakeReportDialog.dates_ = True
+
+
+# ------------------------------------------------------------------ report switches
+def test_report_dialog_has_a_checkbox_for_every_switch(app, settings, tmp_path):
+    from export.report_options import GROUPS, TOGGLES, ReportOptions
+    from gui.building_dialogs import ReportDialog
+    d = ReportDialog(project(tmp_path), 4, 0)
+    assert set(d.toggles) == {t.key for t in TOGGLES}
+    assert all(t.group in GROUPS for t in TOGGLES)
+    # nothing saved yet: the defaults; room photos cannot be chosen while there are none
+    photos = d.toggles["room_photos"]
+    assert not photos.isEnabled() and not photos.isChecked()
+    got = d.report_options()
+    assert all(getattr(got, t.key) for t in TOGGLES)          # the disabled one keeps its default
+    d.toggles["requirements"].setChecked(False)
+    d.toggles["term_ctr"].setChecked(False)
+    assert not d.report_options().requirements and not d.report_options().term_ctr
+    assert d.report_options().term_c
+
+
+def test_report_dialog_shows_the_saved_switches_of_the_project(app, settings, tmp_path):
+    from calc.building import Photo
+    from gui.building_dialogs import ReportDialog
+    p = project(tmp_path)
+    p.report_options = {"summary": False, "room_photos": False, "file_dates": False,
+                        "unknown_switch": False}
+    d = ReportDialog(p, 4, 0)
+    assert not d.toggles["summary"].isChecked() and not d.dates.isChecked()
+    assert d.toggles["notes"].isChecked()                          # not saved: default
+    p.room("A").photos = [Photo(photo_files(tmp_path, 1)[0])]
+    d2 = ReportDialog(p, 4, 0)
+    assert d2.photos.isEnabled() and not d2.photos.isChecked()     # the saved choice wins
+    # a switch that cannot be used keeps its saved value instead of being overwritten
+    p.report_options = {"room_photos": True}
+    p.room("A").photos = []
+    assert ReportDialog(p, 4, 0).report_options().room_photos is True
+
+
+def test_export_remembers_the_switches_in_the_project(app, settings, tmp_path, monkeypatch):
+    pypdf = pytest.importorskip("pypdf")
+    from calc.building import ReportInfo
+    from gui.building_page import BuildingPage
+
+    def pdf_text(name):
+        return " ".join(" ".join(pg.extract_text().split())
+                        for pg in pypdf.PdfReader(str(tmp_path / name)).pages)
+
+    p = project(tmp_path)
+    p.airborne[0].requirement = 54
+    page = BuildingPage(settings)
+    page.set_project(p)
+    FakeReportDialog.accepted, FakeReportDialog.open_ = True, False
+    FakeReportDialog.pages_, FakeReportDialog.bands_ = True, True
+    FakeReportDialog.photos_, FakeReportDialog.dates_ = True, True
+    FakeReportDialog.info_ = ReportInfo()
+    FakeReportDialog.extra_ = {}
+    _patch_export(monkeypatch, tmp_path / "sw.pdf")
+    try:
+        page.export_pdf()
+        assert "Voldoet" in pdf_text("sw.pdf")
+        assert page.project.report_options == {} and not page.dirty    # defaults: nothing to save
+        FakeReportDialog.extra_ = {"requirements": False}
+        page.export_pdf()
+        assert page.project.report_options["requirements"] is False and page.dirty
+        text = pdf_text("sw.pdf")
+        assert "Voldoet" not in text and "Eisen:" not in text          # nothing about requirements
+        assert page.save_to(tmp_path / "sw.json")
+        other = BuildingPage(settings)
+        assert other.open_path(tmp_path / "sw.json")
+        assert other.project.report_options["requirements"] is False   # survives saving
+        other.dirty = False
+        FakeReportDialog.info_ = other.project.report
+        other.export_pdf()                                             # same choices again
+        assert not other.dirty
+    finally:
+        FakeReportDialog.extra_ = {}

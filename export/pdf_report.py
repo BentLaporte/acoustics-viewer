@@ -1,5 +1,8 @@
 """PDF report of a building: results, compliance, comparison and one page per measurement.
 
+The report is in Dutch; every fixed text comes from `report_text.py`. What it contains is set by
+`ReportOptions` (see `report_options.py`: one switch per part of the content).
+
 Built with reportlab (layout) and matplotlib (charts). The fonts are the DejaVu fonts that ship
 with matplotlib, so characters like the arrow, >=, <= and the minus sign always work.
 Nothing in here depends on the GUI.
@@ -8,8 +11,6 @@ from __future__ import annotations
 
 import datetime as dt
 import io
-import os
-from dataclasses import dataclass
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -32,7 +33,11 @@ from calc.colors import style_of
 from calc.iso717 import BANDS
 
 from . import charts
+from . import report_text as T
 from .photos import PreparedPhoto, prepare_photo
+from .report_options import ReportOptions
+from .report_text import date_text as _date_text
+from .report_text import number as num
 
 PAGE = A4
 MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18 * mm, 16 * mm, 20 * mm
@@ -43,12 +48,10 @@ CHECK_BG = {"complies": "#d5f5e3", "fails": "#f5b7b1", "inconclusive": "#fdebd0"
 CHECK_FG = {"complies": "#1e8449", "fails": "#c0392b", "inconclusive": "#b9770e"}
 LIMIT_BG = "#fdebd0"
 HEAD_BG = "#2c3e50"
-BAND_TEXT = ["100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1000",
-             "1250", "1600", "2000", "2500", "3150"]
 BARS_PER_CHART = 10
-ROLE_TEXT = {"source": "Source room levels", "receiver": "Receiving room levels",
-             "tapping": "Tapping machine levels", "background": "Background",
-             "rt": "Reverberation time"}
+ROLE_TEXT = T.ROLE_TEXT
+
+__all__ = ["ReportOptions", "build_pdf_report", "default_report_name", "when_text"]
 
 _fonts_ready = False
 
@@ -95,10 +98,6 @@ def minus(v) -> str:
     return f"{int(v):d}".replace("-", "\u2212")
 
 
-def num(v, nd: int = 1) -> str:
-    return "-" if v is None or not np.isfinite(v) else f"{v:.{nd}f}".replace("-", "\u2212")
-
-
 def styles() -> dict:
     _register_fonts()
 
@@ -116,6 +115,7 @@ def styles() -> dict:
         "small": s("small", fontSize=7.3, leading=9.6, textColor=rl.HexColor("#424949")),
         "cell": s("cell", fontSize=7.6, leading=9.6),
         "cellc": s("cellc", fontSize=7.6, leading=9.6, alignment=1),
+        "cellbox": s("cellbox", fontSize=7.6, leading=9.6, alignment=1, spaceAfter=3),
         "cellb": s("cellb", fontName=FONT_B, fontSize=8, leading=10, alignment=1),
         "tiny": s("tiny", fontSize=6.4, leading=8),
         "tinyc": s("tinyc", fontSize=6.4, leading=8, alignment=1),
@@ -147,22 +147,29 @@ def _image(png: bytes, width=FRAME_W) -> Image:
 
 
 # ----------------------------------------------------------------------------- options
-@dataclass
-class ReportOptions:
-    per_measurement_pages: bool = True      # one page with chart and band table per measurement
-    per_band_tables: bool = True            # values per band under the comparison curves
-    room_photos: bool = True                # photos page and small photos on measurement pages
-    file_dates: bool = True                 # date and time of every measurement file
-    date: dt.date | None = None             # report date, default today
-
-
 def default_report_name(project: Project) -> str:
     safe = "".join(c for c in project.name if c not in '\\/:*?"<>|').strip() or "Building"
-    return f"{safe} - report.pdf"
+    return f"{safe} - rapport.pdf"
 
 
-def _date_text(d: dt.date) -> str:
-    return f"{d.day} {d.strftime('%B %Y')}"
+# the requirement bases that use an adaptation term: that term is then part of the checked value
+_BASIS_TERM = {"wc": "c", "wctr": "ctr", "wci": "ci"}
+
+
+def shown_terms(options: ReportOptions, project: Project, evs: list, kind: str) -> set:
+    """Which adaptation terms ('c', 'ctr' for airborne, 'ci' for impact) the report shows.
+
+    A term that a requirement is checked against (basis DnT,w + C, ...) is always shown while
+    requirements are in the report: the check would otherwise rest on a number the reader
+    cannot see."""
+    wanted = {"c": options.term_c, "ctr": options.term_ctr, "ci": options.term_ci}
+    allowed = {"c", "ctr"} if kind == "airborne" else {"ci"}
+    terms = {t for t in allowed if wanted[t]}
+    if options.requirements and any(e.requirement is not None for e in evs if e.kind == kind):
+        basis = project.airborne_basis if kind == "airborne" else project.impact_basis
+        if _BASIS_TERM.get(basis) in allowed:
+            terms.add(_BASIS_TERM[basis])
+    return terms
 
 
 # ----------------------------------------------------------------------------- page furniture
@@ -192,7 +199,8 @@ def _canvas_maker(left: str, right: str):
             self.setFont(FONT, 7.2)
             self.setFillColor(rl.HexColor("#566573"))
             self.drawString(MARGIN_X, y, left[:80])
-            self.drawCentredString(PAGE[0] / 2, y, f"Page {self._pageNumber} of {total}")
+            self.drawCentredString(PAGE[0] / 2, y,
+                                   T.PAGE_OF.format(page=self._pageNumber, total=total))
             self.drawRightString(PAGE[0] - MARGIN_X, y, right)
 
     return NumberedCanvas
@@ -206,46 +214,59 @@ def _check_cell(ev: Evaluated, st: dict):
     margin = "" if c.margin is None else \
         f"<br/>({c.margin:+d} dB)".replace("-", "\u2212")      # result on line 1, margin on line 2
     fg = CHECK_FG.get(c.status, "#424949")
-    return Paragraph(f"<font color='{fg}'><b>{c.text}{margin}</b></font>", st["cellc"]), \
-        CHECK_BG[c.status]
+    return Paragraph(f"<font color='{fg}'><b>{T.CHECK_TEXT[c.status]}{margin}</b></font>",
+                     st["cellc"]), CHECK_BG[c.status]
 
 
 def _requirement_text(ev: Evaluated) -> str:
     if ev.requirement is None:
         return ""
-    return f"{'\u2265' if ev.kind == 'airborne' else '\u2264'} {ev.requirement} dB"
+    sign = "\u2265" if ev.kind == "airborne" else "\u2264"
+    return f"{sign} {ev.requirement} dB"
 
 
-def _overview_table(evs: list, kind: str, project: Project, st: dict) -> Table:
-    basis = (AIRBORNE_BASES[project.airborne_basis] if kind == "airborne"
+def _overview_table(evs: list, kind: str, project: Project, options: ReportOptions,
+                    st: dict) -> Table:
+    """The results table of one kind. Columns follow the options: the adaptation terms that are
+    switched off and the requirement and check columns (requirements off) are left out."""
+    airborne = kind == "airborne"
+    basis = (AIRBORNE_BASES[project.airborne_basis] if airborne
              else IMPACT_BASES[project.impact_basis])
-    if kind == "airborne":
-        head = ["Measurement", "DnT,w", "C", "Ctr", f"Requirement ({basis})", "Check", "Remarks"]
-        widths = [52, 12, 8, 9, 22, 30, 41]
-    else:
-        head = ["Measurement (tapping room \u2192 receiving room)", "L'nT,w", "C_I",
-                f"Requirement ({basis})", "Check", "Remarks"]
-        widths = [52, 13, 8, 24, 30, 47]
-    rows = [[Paragraph(mk(h), st["head"]) for h in head]]
+    terms = shown_terms(options, project, evs, kind)
+    # (key, header, width in mm; None = shares what is left, name 55 % and remarks 45 %)
+    cols = [("name", T.COL_MEASUREMENT if airborne else T.COL_MEASUREMENT_IMPACT, None),
+            ("value", "DnT,w" if airborne else "L'nT,w", 13)]
+    if airborne:
+        cols += [("c", "C", 8)] if "c" in terms else []
+        cols += [("ctr", "Ctr", 9)] if "ctr" in terms else []
+    elif "ci" in terms:
+        cols += [("ci", "C_I", 8)]
+    if options.requirements:
+        cols += [("req", T.COL_REQUIREMENT.format(basis=basis), 26 if airborne else 24),
+                 ("check", T.COL_CHECK, 30)]
+    cols += [("remarks", T.COL_REMARKS, None)]
+    left = FRAME_W / mm - sum(w for *_, w in cols if w)
+    widths = [w if w else left * (0.55 if key == "name" else 0.45) for key, _, w in cols]
+
+    rows = [[Paragraph(mk(h), st["head"]) for _, h, _ in cols]]
     extra = []
     for i, ev in enumerate(evs, start=1):
         r = ev.result
-        value = str(ev.value) if ev.value is not None else "-"
-        if kind == "airborne":
-            nums = [value, minus(r.c) if r and r.c is not None else "-",
-                    minus(r.ctr) if r and r.ctr is not None else "-"]
-        else:
-            nums = [value, minus(r.ci) if r and r.ci is not None else "-"]
-        check, bg = _check_cell(ev, st)
-        row = [Paragraph(txt(ev.label), st["cell"]),
-               Paragraph(f"<b>{nums[0]}</b>", st["cellb"])]
-        row += [Paragraph(n, st["cellc"]) for n in nums[1:]]
-        row += [Paragraph(_requirement_text(ev), st["cellc"]), check,
-                Paragraph(txt("; ".join(ev.notes)), st["small"])]
-        rows.append(row)
-        if bg:
-            extra.append(("BACKGROUND", (len(nums) + 2, i), (len(nums) + 2, i),
-                          rl.HexColor(bg)))
+        cells, bg = {}, None
+        cells["name"] = Paragraph(txt(ev.label), st["cell"])
+        cells["value"] = Paragraph(f"<b>{ev.value if ev.value is not None else '-'}</b>",
+                                   st["cellb"])
+        for key, term in (("c", "c"), ("ctr", "ctr"), ("ci", "ci")):
+            value = getattr(r, term, None) if r else None
+            cells[key] = Paragraph(minus(value) if value is not None else "-", st["cellc"])
+        cells["req"] = Paragraph(_requirement_text(ev), st["cellc"])
+        cells["check"], bg = _check_cell(ev, st)
+        cells["remarks"] = Paragraph(txt("; ".join(T.note_text(n) for n in ev.notes)),
+                                     st["small"])
+        rows.append([cells[key] for key, _, _ in cols])
+        if options.requirements and bg:
+            j = [key for key, _, _ in cols].index("check")
+            extra.append(("BACKGROUND", (j, i), (j, i), rl.HexColor(bg)))
         if not ev.ok:
             extra.append(("BACKGROUND", (0, i), (0, i), rl.HexColor("#fadbd8")))
     return _table(rows, widths, st, extra=extra)
@@ -258,28 +279,28 @@ def _counts(evs) -> dict:
     return c
 
 
-def _title_block(project: Project, evs: list, date: dt.date, st: dict) -> list:
+def _title_block(project: Project, evs: list, date: dt.date, options: ReportOptions,
+                 st: dict) -> list:
     info = project.report
-    story = [Paragraph("Sound insulation measurements", st["title"]),
+    story = [Paragraph(T.TITLE, st["title"]),
              Paragraph(txt(project.name), st["subtitle"]), Spacer(1, 5 * mm)]
-    rt = {"t30": "T30 (RT30)", "t20": "T20 (RT20)", "edt": "EDT"}[project.rt_kind]
     facts = []
     if info.client:
-        facts.append(("Client", txt(info.client)))
+        facts.append((T.FACT_CLIENT, txt(info.client)))
     if info.location:
-        facts.append(("Location", txt(info.location)))
+        facts.append((T.FACT_LOCATION, txt(info.location)))
     if info.author:
-        facts.append(("Prepared by", txt(info.author)))
-    facts.append(("Report date", _date_text(date)))
-    facts.append(("Reverberation time used", rt))
+        facts.append((T.FACT_AUTHOR, txt(info.author)))
+    facts.append((T.FACT_DATE, _date_text(date)))
+    facts.append((T.FACT_RT, T.RT_TEXT[project.rt_kind]))
     kinds = {e.kind for e in evs}
     basis = []
     if "airborne" in kinds:
-        basis.append(f"airborne: {AIRBORNE_BASES[project.airborne_basis]}")
+        basis.append(f"{T.KIND_WORD['airborne']}: {AIRBORNE_BASES[project.airborne_basis]}")
     if "impact" in kinds:
-        basis.append(f"impact: {IMPACT_BASES[project.impact_basis]}")
-    if any(e.requirement is not None for e in evs) and basis:
-        facts.append(("Requirements checked against", mk("; ".join(basis))))
+        basis.append(f"{T.KIND_WORD['impact']}: {IMPACT_BASES[project.impact_basis]}")
+    if options.requirements and any(e.requirement is not None for e in evs) and basis:
+        facts.append((T.FACT_BASIS, mk("; ".join(basis))))
     rows = [[Paragraph(f"<b>{k}</b>", st["body"]), Paragraph(v, st["body"])] for k, v in facts]
     t = Table(rows, colWidths=[52 * mm, FRAME_W - 52 * mm])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -288,87 +309,122 @@ def _title_block(project: Project, evs: list, date: dt.date, st: dict) -> list:
                            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
                            ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     story.append(t)
-    if info.remarks.strip():
-        story += [Spacer(1, 4 * mm), Paragraph("<b>Remarks</b>", st["body"])]
+    if options.remarks and info.remarks.strip():
+        story += [Spacer(1, 4 * mm), Paragraph(f"<b>{T.REMARKS}</b>", st["body"])]
         story += [Paragraph(txt(line), st["body"]) for line in info.remarks.strip().splitlines()
                   if line.strip()]
     return story
 
 
-def _summary(evs: list, st: dict) -> list:
+def _summary(evs: list, options: ReportOptions, st: dict) -> list:
     n_air = sum(1 for e in evs if e.kind == "airborne")
     n_imp = len(evs) - n_air
-    c = _counts(evs)
-    parts = []
-    if n_air:
-        parts.append(f"{n_air} airborne")
-    if n_imp:
-        parts.append(f"{n_imp} impact")
-    text = f"<b>{len(evs)} measurement(s)</b> ({', '.join(parts)}). "
-    if len(evs) - c["none"]:
-        bits = [f"<font color='{CHECK_FG['complies']}'><b>{c['complies']} comply</b></font>",
-                f"<font color='{CHECK_FG['fails']}'><b>{c['fails']} do not comply</b></font>"]
-        if c["inconclusive"]:
-            bits.append(f"<font color='{CHECK_FG['inconclusive']}'><b>{c['inconclusive']} not "
-                        "conclusive</b></font>")
-        if c["no_result"]:
-            bits.append(f"{c['no_result']} without result")
-        if c["none"]:
-            bits.append(f"{c['none']} without requirement")
-        text += "Requirements: " + ", ".join(bits) + "."
-    else:
-        text += "No requirements were set."
+    parts = ([f"{n_air} {T.KIND_WORD['airborne']}"] if n_air else []) + \
+        ([f"{n_imp} {T.KIND_WORD['impact']}"] if n_imp else [])
+    text = f"<b>{T.count_metingen(len(evs))}</b> ({', '.join(parts)}). "
+    if options.requirements:
+        c = _counts(evs)
+        if len(evs) - c["none"]:
+            def verb(n, one, many):
+                return one if n == 1 else many
+
+            bits = [f"<font color='{CHECK_FG['complies']}'><b>{c['complies']} "
+                    f"{verb(c['complies'], 'voldoet', 'voldoen')}</b></font>",
+                    f"<font color='{CHECK_FG['fails']}'><b>{c['fails']} "
+                    f"{verb(c['fails'], 'voldoet niet', 'voldoen niet')}</b></font>"]
+            if c["inconclusive"]:
+                bits.append(f"<font color='{CHECK_FG['inconclusive']}'><b>{c['inconclusive']} "
+                            "niet conclusief</b></font>")
+            if c["no_result"]:
+                bits.append(f"{c['no_result']} zonder resultaat")
+            if c["none"]:
+                bits.append(f"{c['none']} zonder eis")
+            text += "Eisen: " + ", ".join(bits) + "."
+        else:
+            text += "Er zijn geen eisen ingesteld."
     return [Spacer(1, 5 * mm), Paragraph(text, st["body"])]
 
 
-def _notes(evs: list, project: Project, st: dict) -> list:
+def _term_sentence(names: list) -> str:
+    if not names:
+        return ""
+    if len(names) == 1:
+        return f"{names[0]} is een spectrumaanpassingsterm. "
+    return f"{' en '.join(names)} zijn spectrumaanpassingstermen. "
+
+
+def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> list:
+    """The 'Toelichting': only the notes that belong to what the report shows."""
     kinds = {e.kind for e in evs}
     items = []
     if "airborne" in kinds:
-        items.append(mk("DnT,w is the weighted standardized level difference between two rooms "
-                        "(higher is better); C and Ctr are the spectrum adaptation terms. They "
-                        "are determined from the one-third octave band levels from 100 to 3150 "
-                        "Hz according to ISO 717-1."))
+        names = [n for k, n in (("c", "C"), ("ctr", "Ctr"))
+                 if k in shown_terms(options, project, evs, "airborne")]
+        items.append(mk("DnT,w is het gewogen gestandaardiseerde geluidsniveauverschil tussen "
+                        "twee ruimten (hoger is beter). " + _term_sentence(names) +
+                        "De beoordeling gebeurt op basis van de tertsbandniveaus van 100 tot "
+                        "3150 Hz volgens ISO 717-1."))
     if "impact" in kinds:
-        items.append(mk("L'nT,w is the weighted standardized impact sound pressure level "
-                        "(lower is better); C_I is the spectrum adaptation term (100 to 2500 Hz) "
-                        "according to ISO 717-2."))
-    if any(e.requirement is not None for e in evs):
-        items.append("Airborne results must be at least the required value and impact results "
-                     "at most the required value. The margin is the difference in dB "
-                     "(positive = better than required).")
-    if any(e.check.status == "inconclusive" for e in evs):
-        items.append("Not conclusive: one or more one-third octave bands lie close to the "
-                     "background level (less than 6 dB above it). Such a band is corrected by a "
-                     "fixed 1.3 dB and is only a limit value, which can make the airborne "
-                     "result too low or the impact result too high. Compliance cannot be "
-                     "decided with certainty.")
-    elif any(e.ok and e.result.n_limit for e in evs):
-        items.append("Bands that lie close to the background level (less than 6 dB above it) "
-                     "are corrected by a fixed 1.3 dB and are only limit values; they did not "
-                     "affect the result of the measurements they occur in.")
+        ci = "ci" in shown_terms(options, project, evs, "impact")
+        items.append(mk("L'nT,w is het gewogen gestandaardiseerde contactgeluidsdrukniveau "
+                        "(lager is beter). " +
+                        ("C_I is de spectrumaanpassingsterm (100 tot 2500 Hz). " if ci else "") +
+                        "De beoordeling gebeurt volgens ISO 717-2."))
+    limit = [e for e in evs if e.ok and e.result.n_limit]
+    if options.requirements:
+        if any(e.requirement is not None for e in evs):
+            items.append("Luchtgeluidresultaten moeten minstens gelijk zijn aan de eis en "
+                         "contactgeluidresultaten hoogstens gelijk aan de eis. De marge is het "
+                         "verschil in dB (positief = beter dan de eis).")
+        if any(e.check.status == "inconclusive" for e in evs):
+            items.append("Niet conclusief: een of meer tersbanden liggen dicht bij het "
+                         "achtergrondgeluiddrukniveau (minder dan 6 dB erboven). Zo'n band wordt "
+                         "gecorrigeerd met een vaste 1,3 dB en is slechts een grenswaarde, "
+                         "waardoor het luchtgeluidresultaat te laag of het contactgeluidresultaat "
+                         "te hoog kan uitvallen. Of aan de eis voldaan is, kan niet met zekerheid "
+                         "worden vastgesteld.")
+        elif limit and all(e.check.status in ("complies", "fails") for e in limit):
+            items.append("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (minder dan 6 dB "
+                         "erboven) worden gecorrigeerd met een vaste 1,3 dB en zijn slechts "
+                         "grenswaarden; ze hebben het resultaat van de metingen waarin ze "
+                         "voorkomen niet be\u00efnvloed.")
+        elif limit:
+            items.append(_LIMIT_NEUTRAL)
+    elif limit:
+        items.append(_LIMIT_NEUTRAL)
     if any(e.ok and any(len(v) > 1 for k, v in e.result.names.items() if k != "background")
            for e in evs):
-        items.append("Where several measurement positions were used, the levels were "
-                     "energy-averaged; several reverberation time decays were averaged "
-                     "arithmetically.")
-    return [Spacer(1, 4 * mm), Paragraph("Notes", st["h2"])] + \
+        items.append("Waar meerdere meetposities zijn gebruikt, zijn de geluiddrukniveaus energetisch "
+                     "gemiddeld; meerdere nagalmtijdverlopen zijn rekenkundig gemiddeld.")
+    if not items:
+        return []
+    return [Spacer(1, 4 * mm), Paragraph(T.SECTION_NOTES, st["h2"])] + \
         [Paragraph(f"\u2022 {t}", st["small"]) for t in items]
 
 
-def _bar_charts(evs: list, colors: dict, project: Project, kind: str, st: dict) -> list:
+_LIMIT_NEUTRAL = ("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (minder dan 6 dB erboven) "
+                  "worden gecorrigeerd met een vaste 1,3 dB en zijn slechts grenswaarden "
+                  "(gearceerd in de tabellen). Ze kunnen het luchtgeluidresultaat te laag of het "
+                  "contactgeluidresultaat te hoog doen uitvallen.")
+
+
+def _bar_charts(evs: list, colors: dict, project: Project, kind: str, options: ReportOptions,
+                st: dict) -> list:
     if not evs:
         return []
     basis = (AIRBORNE_BASES[project.airborne_basis] if kind == "airborne"
              else IMPACT_BASES[project.impact_basis])
-    axis = "higher is better" if kind == "airborne" else "lower is better"
-    title = {"airborne": "Airborne sound insulation", "impact": "Impact sound"}[kind] + \
-        f" \u2013 {basis}"
+    quantity = "DnT,w" if kind == "airborne" else "L'nT,w"
+    # with requirements the bars show the value the requirement is checked against
+    shown = basis if options.requirements else quantity
+    title = f"{T.KIND_TITLE[kind]} \u2013 {shown}"
     story = []
     for start in range(0, len(evs), BARS_PER_CHART):
         chunk = evs[start:start + BARS_PER_CHART]
-        png = charts.bars_chart([(e.label, colors[id(e)], e.assessed, e.requirement)
-                                 for e in chunk], axis, title)
+        png = charts.bars_chart(
+            [(e.label, colors[id(e)], e.assessed if options.requirements else e.value,
+              e.requirement if options.requirements else None) for e in chunk],
+            T.KIND_AXIS[kind], title, show_requirement=options.requirements)
         story.append(KeepTogether([_image(png)]))
     return story
 
@@ -379,18 +435,16 @@ def _curves_section(evs: list, colors: dict, dashed: dict, kind: str, options: R
     if not ok:
         return []
     name = "DnT" if kind == "airborne" else "L'nT"
-    title = {"airborne": "Standardized level difference DnT",
-             "impact": "Standardized impact sound pressure level L'nT"}[kind]
-    head = {"airborne": "Airborne: DnT per band", "impact": "Impact: L'nT per band"}[kind]
-    story = [PageBreak(), Paragraph(mk(head), st["h1"])]
+    story = [PageBreak(), Paragraph(mk(T.CURVES_HEAD[kind]), st["h1"])]
     png = charts.curves_chart([(e.label, colors[id(e)], dashed[id(e)], e.curve,
-                                e.result.status == "limit") for e in ok], f"{name} [dB]", title)
+                                e.result.status == "limit") for e in ok], f"{name} [dB]",
+                              T.CURVES_TITLE[kind])
     story.append(_image(png))
     if options.per_band_tables:
         story += [Spacer(1, 4 * mm),
-                  Paragraph(mk(f"{name} per one-third octave band [dB]; bands close to the "
-                               "background are shaded"), st["small"]), Spacer(1, 1.5 * mm)]
-        rows = [[Paragraph("", st["tinyhead"]), Paragraph("Measurement", st["tinyhead"])] +
+                  Paragraph(mk(T.BAND_TABLE_CAPTION.format(name=name)), st["small"]),
+                  Spacer(1, 1.5 * mm)]
+        rows = [[Paragraph("", st["tinyhead"]), Paragraph(T.COL_MEASUREMENT, st["tinyhead"])] +
                 [Paragraph(b, st["tinyhead"]) for b in charts.BAND_LABELS]]
         extra = []
         for i, e in enumerate(ok, start=1):
@@ -435,16 +489,11 @@ def _room_roles(evs: list, room: str) -> str:
     src = sum(1 for e in evs if e.kind == "airborne" and e.source_room == room)
     tap = sum(1 for e in evs if e.kind == "impact" and e.source_room == room)
     rec = sum(1 for e in evs if e.receiver_room == room)
-    def count(n: int) -> str:
-        return f"{n} measurement" + ("" if n == 1 else "s")
-
     parts = []
-    if rec:
-        parts.append(f"receiving room in {count(rec)}")
-    if src:
-        parts.append(f"source room in {count(src)}")
-    if tap:
-        parts.append(f"tapping room in {count(tap)}")
+    # the room with the tapping machine is a source room too: one count for both
+    for n, role in ((rec, "receiver"), (src + tap, "source")):
+        if n:
+            parts.append(f"{T.ROOM_ROLE[role]} bij {T.count_metingen(n)}")
     return ", ".join(parts)
 
 
@@ -453,17 +502,17 @@ def _rooms_section(project: Project, evs: list, cache: PhotoCache, st: dict) -> 
     rooms = [r for n in _rooms_used(evs) if (r := project.room(n)) and r.photos]
     if not rooms:
         return []
-    story = [PageBreak(), Paragraph("Rooms", st["h1"]),
-             Paragraph("Photos of the rooms the measurements refer to.", st["small"]),
-             Spacer(1, 2 * mm)]
+    story = [PageBreak(), Paragraph(T.SECTION_ROOMS, st["h1"]),
+             Paragraph(T.ROOMS_INTRO, st["small"]), Spacer(1, 2 * mm)]
     half = FRAME_W / 2
     for room in rooms:
         cells = []
         for photo in room.photos:
             prepared = cache.get(photo)
             if prepared is None:
-                cells.append([Paragraph(f"<i>Photo could not be read: {txt(Path(photo.path).name)}"
-                                        "</i>", st["small"])])
+                cells.append([Paragraph(
+                    f"<i>{T.PHOTO_UNREADABLE.format(name=txt(Path(photo.path).name))}</i>",
+                    st["small"])])
                 continue
             cell = [_photo_image(prepared, half / mm - 6, 60)]
             cell.append(Paragraph(txt(photo.caption), st["small"]) if photo.caption
@@ -489,9 +538,9 @@ def _rooms_section(project: Project, evs: list, cache: PhotoCache, st: dict) -> 
 
 def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) -> list:
     """Small main photo of the source / tapping room and the receiving room above the chart."""
-    wanted = [("Receiving room", ev.receiver_room)]
+    wanted = [(T.ROOM_LABEL["receiver"], ev.receiver_room)]
     if ev.source_room:
-        wanted.insert(0, ("Source room" if ev.kind == "airborne" else "Tapping room",
+        wanted.insert(0, (T.ROOM_LABEL["source" if ev.kind == "airborne" else "tapping"],
                           ev.source_room))
     cells, any_photo = [], False
     for label, name in wanted:
@@ -500,7 +549,7 @@ def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) ->
         cell = []
         if prepared is not None:
             any_photo = True
-            cell.append(_photo_image(prepared, 62, 38))
+            cell.append(_photo_image(prepared, 56, 32))
         cell.append(Paragraph(f"<b>{label}:</b> {txt(name)}", st["small"]))
         if prepared is not None and prepared.caption:
             cell.append(Paragraph(f"<i>{txt(prepared.caption)}</i>", st["small"]))
@@ -534,12 +583,11 @@ def _file_text(ev: Evaluated, role: str, dates: bool = True) -> str:
 def _file_lines(ev: Evaluated, st: dict, dates: bool = True) -> list:
     rows = [[Paragraph(f"<b>{ROLE_TEXT[k]}</b>", st["small"]),
              Paragraph(_file_text(ev, k, dates), st["small"])] for k in ev.result.names]
-    t = Table(rows, colWidths=[42 * mm, FRAME_W - 42 * mm])
+    t = Table(rows, colWidths=[62 * mm, FRAME_W - 62 * mm])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
                            ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
-    title = "Measurement files" + (" (date and time of the measurement)" if dates else "")
-    return [Paragraph(title, st["h2"]), t]
+    return [Paragraph(T.FILES_TITLE_DATES if dates else T.FILES_TITLE, st["h2"]), t]
 
 
 def _equipment_section(project: Project, evs: list, st: dict) -> list:
@@ -548,9 +596,9 @@ def _equipment_section(project: Project, evs: list, st: dict) -> list:
     other = [ln.strip() for ln in project.report.equipment.splitlines() if ln.strip()]
     if not used and not other:
         return []
-    story = [Paragraph("Equipment", st["h1"])]
+    story = [Paragraph(T.SECTION_EQUIPMENT, st["h1"])]
     if used:
-        rows = [[Paragraph(h, st["head"]) for h in ("Instrument", "Serial number", "Used for")]]
+        rows = [[Paragraph(h, st["head"]) for h in T.EQUIP_HEAD]]
         for instrument, serial, roles in used:
             rows.append([Paragraph(txt(instrument), st["cell"]), Paragraph(str(serial), st["cellc"]),
                          Paragraph(", ".join(ROLE_TEXT[r].lower() for r in roles), st["cell"])])
@@ -560,57 +608,58 @@ def _equipment_section(project: Project, evs: list, st: dict) -> list:
     return [KeepTogether(story)]                     # heading, table and list stay on one page
 
 
-def _detail_page(ev: Evaluated, color: str, project: Project, st: dict,
-                 cache: PhotoCache | None = None, dates: bool = True) -> list:
+def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOptions,
+                 terms: set, st: dict, cache: PhotoCache | None = None) -> list:
     r, rt = ev.result, ev.rating
     airborne = ev.kind == "airborne"
-    story = [PageBreak(), Paragraph(txt(ev.name), st["h1"])]
-    # result line
+    name = T.display_name(ev)
+    story = [PageBreak(), Paragraph(txt(name[0].upper() + name[1:]), st["h1"])]
+    # result line: the quantity and the adaptation terms that are switched on
     if rt is None:
         missing = ", ".join(str(int(f)) for f in r.bands[~np.isfinite(ev.curve)])
-        big = f"Rating not possible (no reverberation time at {missing} Hz)"
+        big = T.DETAIL_NO_RATING.format(missing=missing)
         detail = ""
     else:
-        if airborne:
-            big = mk(f"DnT,w (C; Ctr) = {rt.value} ({minus(r.c)}; {minus(r.ctr)}) dB")
+        shown = [(n, v) for k, n, v in (("c", "C", r.c), ("ctr", "Ctr", r.ctr)) if k in terms] \
+            if airborne else [("C_I", r.ci)] if "ci" in terms else []
+        quantity = "DnT,w" if airborne else "L'nT,w"
+        if shown:
+            big = mk(f"{quantity} ({'; '.join(n for n, _ in shown)}) = {rt.value} "
+                     f"({'; '.join(minus(v) for _, v in shown)}) dB")
         else:
-            big = mk(f"L'nT,w (C_I) = {rt.value} ({minus(r.ci)}) dB")
+            big = mk(f"{quantity} = {rt.value} dB")
         shift = f"{rt.shift:+d}".replace("-", "\u2212")
-        detail = (f"Reference curve shifted {shift} dB; sum of unfavourable deviations "
-                  f"{rt.unfavourable_sum:.1f} dB (maximum 32.0 dB); T = {r.t_kind.upper()}.")
+        detail = T.DETAIL_SHIFT.format(shift=shift, sum=num(rt.unfavourable_sum),
+                                       t=r.t_kind.upper())
     left = [Paragraph(big, st["big"])]
     if detail:
         left.append(Paragraph(detail, st["small"]))
     chk = ev.check
-    right = []
-    if chk.status != "none":
-        cell, _ = _check_cell(ev, st)
-        right = [Paragraph(mk(f"Requirement {ev.basis_label} {_requirement_text(ev)}"),
-                           st["cellc"]), cell]
-    box = Table([[left, right]], colWidths=[FRAME_W * 0.66, FRAME_W * 0.34])
-    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("BOX", (0, 0), (-1, -1), 0.6,
-                                                     rl.HexColor("#b2babb")),
+    show_check = options.requirements and chk.status != "none"
+    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+             ("BOX", (0, 0), (-1, -1), 0.6, rl.HexColor("#b2babb")),
              ("LINEBEFORE", (0, 0), (0, -1), 4, rl.HexColor(color)),
              ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]
-    if CHECK_BG[chk.status]:
-        style.append(("BACKGROUND", (1, 0), (1, 0), rl.HexColor(CHECK_BG[chk.status])))
+    if show_check:
+        cell, _ = _check_cell(ev, st)
+        right = [Paragraph(mk(T.DETAIL_REQUIREMENT.format(basis=ev.basis_label,
+                                                           requirement=_requirement_text(ev))),
+                           st["cellbox"]), cell]            # space: the subscripts need it
+        box = Table([[left, right]], colWidths=[FRAME_W * 0.66, FRAME_W * 0.34])
+        if CHECK_BG[chk.status]:
+            style.append(("BACKGROUND", (1, 0), (1, 0), rl.HexColor(CHECK_BG[chk.status])))
+    else:
+        box = Table([[left]], colWidths=[FRAME_W])
     box.setStyle(TableStyle(style))
     story.append(box)
     strip = _room_strip(ev, project, cache, st) if cache is not None else []
     story += strip or [Spacer(1, 3 * mm)]
-    story += [_image(charts.rating_chart(ev, height_in=2.5 if strip else 2.9)), Spacer(1, 2 * mm)]
+    story += [_image(charts.rating_chart(ev, height_in=2.4 if strip else 2.9)), Spacer(1, 2 * mm)]
 
     # values per band
     lim = r.status == "limit"
-    if airborne:
-        head = ["Band\n[Hz]", "L1\n[dB]", "L2\nmeasured", "Lb\n[dB]", "L2\ncorrected",
-                "Correc-\ntion [dB]", "T [s]", "D\n[dB]", "DnT\n[dB]", "Ref.\ncurve",
-                "Unfav.\ndev."]
-        widths = [15.8] * 11
-    else:
-        head = ["Band\n[Hz]", "Li\nmeasured", "Lb\n[dB]", "Li\ncorrected", "Correc-\ntion [dB]",
-                "T [s]", "L'nT\n[dB]", "Ref.\ncurve", "Unfav.\ndev."]
-        widths = [19.3] * 9
+    head = T.AIRBORNE_HEAD if airborne else T.IMPACT_HEAD
+    widths = [15.8] * 11 if airborne else [19.3] * 9
     rows = [[Paragraph(head_text(h), st["colhead"]) for h in head]]
     extra = []
     for i, hz in enumerate(BANDS):
@@ -635,15 +684,14 @@ def _detail_page(ev: Evaluated, color: str, project: Project, st: dict,
     extra.append(("LEFTPADDING", (0, 0), (-1, -1), 2))
     extra.append(("RIGHTPADDING", (0, 0), (-1, -1), 2))
     story.append(_table(rows, widths, st, extra=extra))
-    small = ["Correction = background noise correction applied to the level of the receiving room."]
+    small = [T.DETAIL_CORRECTION]
     if lim.any():
-        small.append("* Band less than 6 dB above the background: corrected by a fixed 1.3 dB and "
-                     "only a limit value (shaded).")
+        small.append(T.DETAIL_LIMIT)
     story += [Spacer(1, 1.5 * mm)] + [Paragraph(t, st["small"]) for t in small]
-    story += _file_lines(ev, st, dates)
+    story += _file_lines(ev, st, options.file_dates)
     if ev.notes:
-        story += [Paragraph("Remarks", st["h2"])] + \
-            [Paragraph(f"\u2022 {txt(n)}", st["small"]) for n in ev.notes]
+        story += [Paragraph(T.COL_REMARKS, st["h2"])] + \
+            [Paragraph(f"\u2022 {txt(T.note_text(n))}", st["small"]) for n in ev.notes]
     return story
 
 
@@ -653,6 +701,7 @@ def build_pdf_report(project: Project, evaluated: list, path, options: ReportOpt
     """Write the PDF report of the building to `path` and return the path.
 
     evaluated: result of calc.building.evaluate_project(project) (all measurements, in order).
+    options: what the report contains (default: everything).
     hidden: set of (kind, name) of measurements to leave out, e.g. those unticked in the viewer.
     """
     _register_fonts()
@@ -667,36 +716,40 @@ def build_pdf_report(project: Project, evaluated: list, path, options: ReportOpt
     air = [e for e in evs if e.kind == "airborne"]
     imp = [e for e in evs if e.kind == "impact"]
 
-    story = _title_block(project, evs, date, st) + _summary(evs, st)
+    story = _title_block(project, evs, date, options, st)
+    if options.summary:
+        story += _summary(evs, options, st)
     if air:
-        story += [Paragraph("Airborne sound insulation", st["h1"]),
-                  _overview_table(air, "airborne", project, st)]
+        story += [Paragraph(T.SECTION_AIRBORNE, st["h1"]),
+                  _overview_table(air, "airborne", project, options, st)]
     if imp:
-        story += [Paragraph("Impact sound", st["h1"]),
-                  _overview_table(imp, "impact", project, st)]
-    story += _notes(evs, project, st)
-    story += _equipment_section(project, evs, st)
+        story += [Paragraph(T.SECTION_IMPACT, st["h1"]),
+                  _overview_table(imp, "impact", project, options, st)]
+    if options.notes:
+        story += _notes(evs, project, options, st)
+    if options.equipment:
+        story += _equipment_section(project, evs, st)
     if not evs:
-        story.append(Paragraph("There are no measurements in this building yet.", st["body"]))
+        story.append(Paragraph(T.EMPTY, st["body"]))
     else:
         if options.room_photos:
             story += _rooms_section(project, evs, cache, st)
-        story += [PageBreak(), Paragraph("Comparison", st["h1"])]
-        story += _bar_charts(air, colors, project, "airborne", st)
-        story += _bar_charts(imp, colors, project, "impact", st)
+        story += [PageBreak(), Paragraph(T.SECTION_COMPARISON, st["h1"])]
+        story += _bar_charts(air, colors, project, "airborne", options, st)
+        story += _bar_charts(imp, colors, project, "impact", options, st)
         story += _curves_section(air, colors, dashed, "airborne", options, st)
         story += _curves_section(imp, colors, dashed, "impact", options, st)
         if options.per_measurement_pages:
             for e in evs:
                 if e.ok:
-                    story += _detail_page(e, colors[id(e)], project, st,
-                                          cache if options.room_photos else None,
-                                          options.file_dates)
+                    terms = shown_terms(options, project, evs, e.kind)
+                    story += _detail_page(e, colors[id(e)], project, options, terms, st,
+                                          cache if options.room_photos else None)
 
     path = Path(path)
     doc = BaseDocTemplate(str(path), pagesize=PAGE,
-                          title=f"{project.name} - sound insulation measurements",
-                          author=project.report.author or "", subject="Sound insulation")
+                          title=f"{project.name} - geluidsisolatiemetingen",
+                          author=project.report.author or "", subject="Geluidsisolatie")
     # no frame padding: tables, pictures and text all start exactly at the margin
     frame = Frame(MARGIN_X, MARGIN_BOTTOM, FRAME_W, PAGE[1] - MARGIN_TOP - MARGIN_BOTTOM,
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id="main")

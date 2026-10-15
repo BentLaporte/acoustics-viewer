@@ -114,6 +114,9 @@ class Project:
     airborne: list[AirborneSituation] = field(default_factory=list)
     impact: list[ImpactSituation] = field(default_factory=list)
     report: ReportInfo = field(default_factory=ReportInfo)
+    # what the PDF report contains: switch name -> True/False (see export/report_options.py);
+    # empty = all defaults. Kept as a plain dict so calc/ does not depend on export/.
+    report_options: dict = field(default_factory=dict)
 
     def room(self, name: str) -> Room | None:
         return next((r for r in self.rooms if r.name == name), None)
@@ -363,6 +366,7 @@ def project_to_dict(project: Project, base: Path) -> dict:
         "report": {"client": project.report.client, "location": project.report.location,
                    "author": project.report.author, "remarks": project.report.remarks,
                    "equipment": project.report.equipment},
+        **({"report_options": dict(project.report_options)} if project.report_options else {}),
         "airborne_basis": project.airborne_basis,
         "impact_basis": project.impact_basis,
         "background_files": _rel(project.background_files, base),
@@ -422,6 +426,9 @@ def project_from_dict(d: dict, base: Path) -> Project:
     project.report = ReportInfo(rep.get("client", ""), rep.get("location", ""),
                                 rep.get("author", ""), rep.get("remarks", ""),
                                 rep.get("equipment", ""))
+    stored = d.get("report_options", {})
+    project.report_options = {k: v for k, v in stored.items() if isinstance(v, bool)} \
+        if isinstance(stored, dict) else {}
     project.sort_rooms()
     return project
 

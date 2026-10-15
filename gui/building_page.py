@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from calc.building import (AIRBORNE_BASES, IMPACT_BASES, Evaluated, Project, Room,
                            airborne_details_files, evaluate_project, impact_details_files,
                            load_project, save_project)
+from export.report_options import ReportOptions
 
 from .building_dialogs import ReportDialog, RequirementsDialog, RoomDialog, SituationDialog
 from calc.colors import style_of
@@ -713,7 +714,7 @@ class BuildingPage(QtWidgets.QWidget):
                                               "Add measurements to the building first.")
             return
         try:                                   # imported here: the viewer starts faster without
-            from export.pdf_report import ReportOptions, build_pdf_report, default_report_name
+            from export.pdf_report import build_pdf_report, default_report_name
         except ImportError as exc:
             QtWidgets.QMessageBox.warning(
                 self, "PDF export not available",
@@ -727,6 +728,10 @@ class BuildingPage(QtWidgets.QWidget):
         if info != self.project.report:
             self.project.report = info
             self.mark_dirty()
+        chosen = dlg.report_options().to_dict()               # remembered per project
+        if chosen != ReportOptions.from_dict(self.project.report_options).to_dict():
+            self.project.report_options = chosen
+            self.mark_dirty()
         folder = self.path.parent if self.path else Path(self.settings.value("project_dir", ""))
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save PDF report", str(folder / default_report_name(self.project)),
@@ -735,10 +740,7 @@ class BuildingPage(QtWidgets.QWidget):
             return
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
-        options = ReportOptions(per_measurement_pages=dlg.pages.isChecked(),
-                                per_band_tables=dlg.bands.isChecked(),
-                                room_photos=dlg.photos.isChecked(),
-                                file_dates=dlg.dates.isChecked(), date=dlg.report_date())
+        options = dlg.report_options()
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             build_pdf_report(self.project, self.evaluated, path, options, self.hidden)

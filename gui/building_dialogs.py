@@ -9,6 +9,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from calc.building import (AIRBORNE_BASES, IMPACT_BASES, AirborneSituation, ImpactSituation,
                            Photo, Project, ReportInfo, Room, situation_name)
 
+from export.report_options import GROUPS, TOGGLES, ReportOptions
+
 from .thumbs import IMAGE_FILTER, thumbnail
 from .widgets import FileRow
 
@@ -380,7 +382,10 @@ class SituationDialog(QtWidgets.QDialog):
 
 
 class ReportDialog(QtWidgets.QDialog):
-    """Information for the first page of the PDF report and what to put in it."""
+    """Information for the first page of the PDF report and what to put in it.
+
+    The switches come from export.report_options.TOGGLES (one checkbox each, grouped); their
+    values are remembered in the project. To add a switch to the report, add it there."""
 
     def __init__(self, project: Project, n_included: int, n_left_out: int, parent=None):
         super().__init__(parent)
@@ -411,19 +416,35 @@ class ReportDialog(QtWidgets.QDialog):
         form.addRow("Remarks:", self.remarks)
         form.addRow("Other equipment:", self.equipment)
         lay.addLayout(form)
-        self.pages = QtWidgets.QCheckBox("One page per measurement (chart and values per band)")
-        self.bands = QtWidgets.QCheckBox("Values per band under the comparison curves")
+
+        # one checkbox per switch of the report, in groups; the saved values of this project
+        self.stored = ReportOptions.from_dict(project.report_options)
         n_photos = sum(len(r.photos) for r in project.rooms)
-        self.photos = QtWidgets.QCheckBox(
-            f"Room photos ({n_photos} available): a photo page and small photos per measurement")
-        self.photos.setChecked(n_photos > 0)
-        self.photos.setEnabled(n_photos > 0)
-        self.dates = QtWidgets.QCheckBox("Date and time of each measurement file")
-        self.open_after = QtWidgets.QCheckBox("Open the PDF when it is ready")
-        for box in (self.pages, self.bands, self.photos, self.dates, self.open_after):
-            if box is not self.photos:
-                box.setChecked(True)
+        self.toggles: dict[str, QtWidgets.QCheckBox] = {}
+        for group in GROUPS:
+            box = QtWidgets.QGroupBox(group)
+            column = QtWidgets.QVBoxLayout(box)
+            for toggle in (t for t in TOGGLES if t.group == group):
+                check = QtWidgets.QCheckBox(toggle.label)
+                check.setChecked(getattr(self.stored, toggle.key))
+                check.setToolTip(toggle.tip)
+                self.toggles[toggle.key] = check
+                column.addWidget(check)
             lay.addWidget(box)
+        photos = self.toggles["room_photos"]                  # only possible with photos
+        photos.setText(f"Room photos ({n_photos} available): a photo page and small photos "
+                       "per measurement")
+        photos.setEnabled(n_photos > 0)
+        photos.setChecked(n_photos > 0 and self.stored.room_photos)
+        # names used by the older code and tests
+        self.pages = self.toggles["per_measurement_pages"]
+        self.bands = self.toggles["per_band_tables"]
+        self.photos = photos
+        self.dates = self.toggles["file_dates"]
+
+        self.open_after = QtWidgets.QCheckBox("Open the PDF when it is ready")
+        self.open_after.setChecked(True)
+        lay.addWidget(self.open_after)
         text = f"{n_included} measurement(s) will be included."
         if n_left_out:
             text += (f" {n_left_out} measurement(s) that are unticked ('Show') in the overview "
@@ -447,3 +468,9 @@ class ReportDialog(QtWidgets.QDialog):
     def report_date(self) -> dt.date:
         d = self.date.date()
         return dt.date(d.year(), d.month(), d.day())
+
+    def report_options(self) -> ReportOptions:
+        """The chosen switches (a disabled box keeps its saved value) and the report date."""
+        values = {key: (box.isChecked() if box.isEnabled() else getattr(self.stored, key))
+                  for key, box in self.toggles.items()}
+        return ReportOptions(**values, date=self.report_date())
