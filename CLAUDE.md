@@ -35,6 +35,13 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
   project (key `report_options`, schema stays 2). Requirements off removes everything about
   requirements everywhere. To add a switch: one `Toggle(...)`, one field in `ReportOptions`,
   use `options.<key>` in `pdf_report.py`.
+* Installation noise (`calc/iso10052.py`, `calc/installation.py`): ISO 10052:2021 as used by
+  NBN S 01-400-1:2022 4.4. LAeq,nT for stationary, LAFmax,nT for transient installations;
+  LAFmax = profile 1 (A, Fast) of the 977, checked against SvanPC++. No background correction
+  (ISO 10052 6.2.1), only the 6 dB check. Whole dB, halves up. Bent's choices: octave T =
+  arithmetic mean of the three thirds; per band T30, else T20 (say so in output); the
+  integrated (walking) method is allowed and marked as a deviation from 6.3.4. Our choice:
+  background check of LAFmax against the background LAeq. ISO 16032 not available yet.
 * Dutch wording lives only in `export/report_text.py`. Bent's terms: hamerklopmachine (tapping
   machine), bronruimte (source room, also for impact), ontvangstruimte (receiving room, also for
   impact), tertsband, achtergrondgeluiddrukniveau, geluiddrukniveaus.
@@ -56,6 +63,10 @@ compare paths as `Path` objects, not strings. Last test run (Windows, `.venv` Py
 
 Open items, in rough order:
 
+0. Installation noise (branch `installation-noise`): calculation and CLI done. Next: viewer
+   page (time-window selection on the level history, note when T20 replaced T30), building
+   comparison with requirements, Dutch report. The report needs a switch (`Toggle`) to show
+   or hide the 'integrated method' remark. No transient sample yet (toilet flush, lift).
 1. Excel export of the building comparison (reuse the switches registry).
 2. End-to-end hand check of one real airborne and one real impact measurement against an
    independent calculation (Bent will do this later).

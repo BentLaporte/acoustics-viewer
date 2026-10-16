@@ -1,11 +1,12 @@
 # Command line: `python -m calc`
 
-Run from the project folder with the virtual environment active. Four commands:
+Run from the project folder with the virtual environment active. Five commands:
 
 | Command | Does |
 |---|---|
 | `airborne` | DnT,w (C; Ctr) from the level files of a source room and a receiving room, the background and the reverberation time of the receiving room |
 | `impact` | L'nT,w (C_I) from tapping machine, background and reverberation time files of a receiving room |
+| `installation` | L_Aeq,nT or L_AFmax,nT of service equipment (installation noise, ISO 10052 / NBN S 01-400-1) from level files, reverberation time files and optionally a background file |
 | `building` | evaluates every measurement of a building project file (`.json`); `--pdf` also writes the report |
 | `info` | what an SVL file contains: instrument, serial, date and time, levels or reverberation times |
 
@@ -19,6 +20,8 @@ to a file instead of the screen.
 python -m calc airborne --source A.L1.SVL --receiver B.L1.SVL --background C.L20.SVL --rt B.L15.SVL
 python -m calc airborne ... --rt-kind t20 --requirement 54 --basis wc --format json
 python -m calc impact --tapping B.L4.SVL --background C.L20.SVL --rt B.L11.SVL --requirement 58
+python -m calc installation --level L22.SVL --rt L15.SVL L16.SVL --background L39.SVL --requirement 30
+python -m calc installation --level L5.SVL@3-45 --rt L15.SVL --quantity lafmax --format json
 python -m calc building "projects/My building/My building.json" --format csv --output results.csv
 python -m calc building project.json --pdf report.pdf --no-dates --no-photos
 python -m calc info A.L1.SVL B.L11.SVL --format json
@@ -40,6 +43,18 @@ Several files after one option are averaged: `--receiver B.L1.SVL B.L2.SVL B.L3.
 | `--basis` | what the requirement is checked against. airborne: `w` = DnT,w (default), `wc` = DnT,w + C, `wctr` = DnT,w + Ctr. impact: `w` = L'nT,w (default), `wci` = L'nT,w + C_I |
 | `--format`, `--output` | see above |
 | `--strict` | exit status 1 if the requirement is not met or not conclusive |
+
+`installation`
+
+| Option | Meaning |
+|---|---|
+| `--level SVL[@START-END]` | level file(s) of the room. `@START-END` uses only those seconds (whole seconds, end exclusive; `@5-` = from second 5 to the end), e.g. one operating cycle |
+| `--rt` | reverberation time file(s) of the room |
+| `--background` | optional background level file(s): checked, never corrected |
+| `--quantity laeq\|lafmax` | `laeq` = LAeq,nT, stationary installations (default); `lafmax` = LAFmax,nT, transient ones |
+| `--method integrated\|positions` | `integrated` = moving microphone, any number of files, energy-averaged (default); `positions` = exactly three files, the corner position first, then two in the reverberant field (ISO 10052 6.3.4) |
+| `--requirement DB` | maximum allowed value in dB |
+| `--format`, `--output`, `--strict` | as above; `--format csv` gives one row per level file |
 
 `building PROJECT.json`: `--format`, `--output`, `--strict` (exit 1 if any measurement fails,
 is not conclusive or could not be calculated), `--pdf FILE`, `--no-measurement-pages`,
@@ -103,6 +118,26 @@ Names are not changed without raising `schema_version`.
 For impact: `tapping_level_measured_db`, `background_level_db`, `tapping_level_corrected_db`,
 `background_correction`, `reverberation_time_s`, `standardized_impact_level_LnT_db`,
 `reference_curve_unshifted_db`, `reference_curve_shifted_db`, `unfavourable_deviation_db`.
+
+### Installation object (`installation`)
+
+| Key | Meaning |
+|---|---|
+| `schema_version`, `kind` (`"installation"`), `ok`, `error`, `remarks` | as above; remarks name the integrated method, T20 used instead of T30, and a background check |
+| `result.quantity` | `"LAeq,nT"` \| `"LAFmax,nT"` |
+| `result.single_number_db` | int: the value as reported, whole dB (ISO 10052 7.3, halves rounded up) |
+| `result.standardized_level_unrounded_db`, `measured_level_db`, `reverberation_index_k_db` | L_XY,nT before rounding, L_XY (energy average of the files), k |
+| `result.method`, `method_text` | `"integrated"` \| `"positions"` |
+| `result.background_level_laeq_db`, `background_affected` | background LAeq (null without a file); `true` if a file is less than 6 dB above it: the value is then overestimated, no correction is applied (ISO 10052 6.2.1) |
+| `requirement` | as above with `direction` `"<="`; `inconclusive` = a failure while the level was within 6 dB of the background |
+| `recordings[]` | `{file, start_s, end_s, duration_s, level_db, margin_to_background_db}` per level file |
+| `reverberation.octave_s` | T in the octaves 500, 1000, 2000 Hz: arithmetic mean of the three one-third octaves in each (our choice) |
+| `reverberation.third_octave_s`, `t20_instead_of_t30_hz` | T per one-third octave (mean over the files; T30, or T20 where T30 is missing) and the bands where T20 was used |
+| `files.<role>[]` | roles `level`, `rt`, `background` |
+
+Installation noise: `k = 10 lg((T500 + T1000 + T2000) / (3 x 0.5))`, `L_XY,nT = L_XY - k`, where
+L_XY is the LAeq or the highest LAFmax (profile 1 of the instrument, A, Fast) of each file,
+energy-averaged over the files.
 
 ### Building object (`building`)
 

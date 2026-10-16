@@ -301,7 +301,7 @@ class SvlFile:
         if not (isinstance(start, (int, np.integer)) and isinstance(end, (int, np.integer))):
             raise ValueError("the time window is given in whole seconds")
         if not 0 <= start < end <= self.duration_s:
-            raise ValueError(f"{self.name}: time window {start}-{end} s is outside the "
+            raise ValueError(f"{self.path.name}: time window {start}-{end} s is outside the "
                              f"measurement (0-{self.duration_s} s)")
         return self.seconds[start:end]
 
@@ -323,7 +323,7 @@ class SvlFile:
         eq = np.array([s.profiles[0, 3] for s in secs])
         laeq = np.array([s.leq_broadband[0] for s in secs])
         if np.max(np.abs(eq - laeq)) > PROFILE_TOLERANCE_DB:
-            raise SvlError(f"{self.name}: profile 1 is not A-weighted (its Leq differs from "
+            raise SvlError(f"{self.path.name}: profile 1 is not A-weighted (its Leq differs from "
                            "the LAeq), so LAFmax cannot be read; set profile 1 to A, Fast")
         return float(np.max([s.profiles[0, 1] for s in secs]))
 

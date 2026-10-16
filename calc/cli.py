@@ -3,6 +3,8 @@
   airborne   DnT,w (C; Ctr) from level files of the source room, the receiving room, the
              background and the reverberation time
   impact     L'nT,w (C_I) from tapping machine, background and reverberation time files
+  installation  L_Aeq,nT or L_AFmax,nT (installation noise, ISO 10052 / NBN S 01-400-1) from
+             level files, reverberation time files and optionally a background file
   building   evaluate every measurement of a building project file (.json), optionally write
              the PDF report
   info       what is in an SVL file (instrument, date and time, levels)
@@ -31,8 +33,10 @@ from .airborne import compute_airborne
 from .building import (AIRBORNE_BASES, IMPACT_BASES, Evaluated, equipment_used, evaluate_project,
                        load_project)
 from .impact import compute_impact
+from .installation import (METHODS, QUANTITIES, Recording, check_requirement,
+                           compute_installation)
 from .iso717 import BANDS
-from .results import SCHEMA_VERSION, _list, _num, evaluated_to_dict
+from .results import SCHEMA_VERSION, _list, _num, evaluated_to_dict, installation_to_dict
 
 RT_KINDS = ["t30", "t20", "edt"]
 
@@ -198,6 +202,64 @@ def format_building_csv(project, evs) -> str:
                     "" if chk.status == "none" else chk.status,
                     "" if chk.margin is None else chk.margin, e.error or ""])
     return buf.getvalue().rstrip("\n")
+
+
+# ----------------------------------------------------------------------------- installation
+def format_installation_text(r, requirement: int | None = None) -> str:
+    """Human readable result of one installation noise calculation."""
+    out = [f"Installation noise ({r.symbol}, ISO 10052 / NBN S 01-400-1)", "", "Files:"]
+    out += [_file_line(role, infos) for role, infos in r.info.items()]
+    out += ["", f"Method: {METHODS[r.method]}", ""]
+    level = "LAeq" if r.quantity == "laeq" else "LAFmax"
+    out.append(f"  {'file':<34}{'window':>10}{'s':>5}{level + ' dB':>11}{'- Lb':>8}")
+    for i, (rec, d, lv) in enumerate(zip(r.recordings, r.durations, r.levels)):
+        m = "" if r.margins is None else f"{r.margins[i]:8.1f}"
+        out.append(f"  {rec.path.name:<34}{rec.window_text or 'all':>10}{d:>5}{lv:11.1f}{m}")
+    out.append("")
+    if r.background is not None:
+        out.append(f"Background LAeq: {r.background:.1f} dB")
+    octs = ", ".join(f"T{o} = {t:.3f} s" for o, t in r.t_octaves.items())
+    out.append(f"Reverberation: {octs}   k = {r.k:.2f} dB")
+    out.append(f"Measured level {r.level:.1f} dB - k = {r.lnt:.2f} dB")
+    out += ["", f"{r.symbol} = {r.value} dB"]
+    if requirement is not None:
+        chk = check_requirement(r, requirement)
+        out.append(f"Requirement {r.symbol} at most {requirement} dB: {chk} "
+                   f"({requirement - r.value:+d} dB)")
+    if r.notes:
+        out += ["", "Remarks:"] + [f"  - {n}" for n in r.notes]
+    return "\n".join(out)
+
+
+def format_installation_csv(r) -> str:
+    """One row per recording."""
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["file", "start_s", "end_s", "duration_s", "level_db", "margin_to_background_db"])
+    for i, (rec, d, lv) in enumerate(zip(r.recordings, r.durations, r.levels)):
+        w.writerow([rec.path.name, rec.start, "" if rec.end is None else rec.end, d,
+                    round(float(lv), 2), "" if r.margins is None else round(float(r.margins[i]), 2)])
+    return buf.getvalue().rstrip("\n")
+
+
+def cmd_installation(args) -> int:
+    try:
+        recs = [Recording.parse(s) for s in args.level]
+        _checked([x.path for x in recs], "level")
+        r = compute_installation(recs, _checked(args.rt, "rt"),
+                                 _checked(args.background, "background") if args.background else None,
+                                 args.quantity, args.method)
+    except (SvlError, ValueError) as exc:
+        raise CliError(str(exc)) from None
+    if args.format == "json":
+        text = json.dumps(installation_to_dict(r, args.requirement), indent=2,
+                          ensure_ascii=False, allow_nan=False)
+    elif args.format == "csv":
+        text = format_installation_csv(r)
+    else:
+        text = format_installation_text(r, args.requirement)
+    _emit(text, args)
+    return 1 if args.strict and check_requirement(r, args.requirement) in ("fails", "inconclusive") else 0
 
 
 # ----------------------------------------------------------------------------- info
@@ -397,6 +459,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="what the requirement is checked against: w = L'nT,w (default), wci = L'nT,w + C_I")
     _common(i)
 
+    s = sub.add_parser("installation", help="L_Aeq,nT or L_AFmax,nT of service equipment (installation noise)")
+    s.add_argument("--level", nargs="+", required=True, metavar="SVL[@START-END]",
+                   help="level file(s) of the room; @START-END uses only those seconds (e.g. L22.SVL@5-35)")
+    s.add_argument("--rt", nargs="+", required=True, metavar="SVL", help="reverberation time file(s) of the room")
+    s.add_argument("--background", nargs="+", metavar="SVL", help="background level file(s): checked, never corrected")
+    s.add_argument("--quantity", choices=list(QUANTITIES), default="laeq",
+                   help="laeq = LAeq,nT, stationary installations (default); lafmax = LAFmax,nT, transient ones")
+    s.add_argument("--method", choices=list(METHODS), default="integrated",
+                   help="integrated = moving microphone, any number of files (default); positions = "
+                        "corner + two in the reverberant field, exactly three files, corner first")
+    s.add_argument("--requirement", type=int, metavar="DB", help="maximum allowed value in dB")
+    _common(s)
+
     b = sub.add_parser("building", help="evaluate a building project file (.json)")
     b.add_argument("project", metavar="PROJECT.json")
     _common(b)
@@ -418,6 +493,8 @@ def main(argv=None) -> int:
             return cmd_measurement(args)
         if args.command == "building":
             return cmd_building(args)
+        if args.command == "installation":
+            return cmd_installation(args)
         return cmd_info(args)
     except CliError as exc:
         print(f"error: {exc}", file=sys.stderr)
