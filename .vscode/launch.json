@@ -10,13 +10,13 @@
       "args": [
         "airborne",
         "--source",
-        "samples/A_L2.SVL",
+        "samples/luchtgeluid_bron_L2.SVL",
         "--receiver",
-        "samples/B_L2.SVL",
+        "samples/luchtgeluid_ontvangst_L2.SVL",
         "--background",
-        "samples/C_L20.SVL",
+        "samples/ontvangstruimte_BG_L20.SVL",
         "--rt",
-        "samples/B_L11.SVL"
+        "samples/ontvangstruimte_RT_L11.SVL"
       ]
     },
     {
@@ -28,11 +28,11 @@
       "args": [
         "impact",
         "--tapping",
-        "samples/B_L4.SVL",
+        "samples/contactgeluid_L4.SVL",
         "--background",
-        "samples/C_L20.SVL",
+        "samples/ontvangstruimte_BG_L20.SVL",
         "--rt",
-        "samples/B_L11.SVL"
+        "samples/ontvangstruimte_RT_L11.SVL"
       ]
     },
     {

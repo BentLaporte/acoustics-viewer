@@ -19,10 +19,10 @@ def have(*names):
 
 # date and time as shown by SvanPC++: the header information of A.L1 and of the 977C file, and
 # the "global settings" times of the CSV exports of the other 977D files
-KNOWN = [("A_L1.SVL", datetime(2026, 9, 22, 12, 6, 44)),      # SvanPC++ header information
-         ("A_L2.SVL", datetime(2026, 9, 22, 12, 11, 34)),     # CSV
-         ("B_L2.SVL", datetime(2026, 9, 22, 12, 16, 18)),     # CSV
-         ("C_L20.SVL", datetime(2026, 9, 28, 11, 40, 22))]    # CSV
+KNOWN = [("luchtgeluid_bron_L1.SVL", datetime(2026, 9, 22, 12, 6, 44)),      # SvanPC++ header information
+         ("luchtgeluid_bron_L2.SVL", datetime(2026, 9, 22, 12, 11, 34)),     # CSV
+         ("luchtgeluid_ontvangst_L2.SVL", datetime(2026, 9, 22, 12, 16, 18)),     # CSV
+         ("ontvangstruimte_BG_L20.SVL", datetime(2026, 9, 28, 11, 40, 22))]    # CSV
 
 
 @pytest.mark.parametrize("name, expected", KNOWN)
@@ -32,34 +32,34 @@ def test_977d_level_files_match_svanpc(name, expected):
     assert read_svl(SAMPLES / name).measured_at == expected
 
 
-@have("B_L11.SVL")
+@have("ontvangstruimte_RT_L11.SVL")
 def test_977d_reverberation_file_matches_svanpc_csv():
-    assert read_rt(SAMPLES / "B_L11.SVL").measured_at == datetime(2026, 9, 22, 12, 44, 2)
+    assert read_rt(SAMPLES / "ontvangstruimte_RT_L11.SVL").measured_at == datetime(2026, 9, 22, 12, 44, 2)
 
 
-@have("977C_example.SVL")
+@have("977C_L1.SVL")
 def test_977c_file_is_within_the_two_second_resolution():
     # SvanPC++ header information: 28/09/2026 11:08:35; the file stores seconds / 2 (floor)
-    at = read_svl(SAMPLES / "977C_example.SVL").measured_at
+    at = read_svl(SAMPLES / "977C_L1.SVL").measured_at
     assert at == datetime(2026, 9, 28, 11, 8, 34)
     assert 0 <= (datetime(2026, 9, 28, 11, 8, 35) - at).total_seconds() <= 1
 
 
-@have("977C_RT.SVL")
+@have("977C_RT_L34.SVL")
 def test_977c_reverberation_file_has_a_plausible_date():
-    at = read_rt(SAMPLES / "977C_RT.SVL").measured_at
+    at = read_rt(SAMPLES / "977C_RT_L34.SVL").measured_at
     assert at.year == 2026 and 1 <= at.month <= 12                   # no SvanPC++ value seen
 
 
-@have("A_L1.SVL")
+@have("luchtgeluid_bron_L1.SVL")
 def test_977d_header_information_of_a_l1():
     """SvanPC++ header information of A.L1.SVL: SV 977D, serial 99942, software 2.18.1."""
-    d = read_svl(SAMPLES / "A_L1.SVL").device
+    d = read_svl(SAMPLES / "luchtgeluid_bron_L1.SVL").device
     assert (d.label, d.serial, d.firmware, d.model) == ("SV 977D", 99942, 218, 977)
 
 
 def test_implausible_values_give_none(tmp_path):
-    good = (SAMPLES / "A_L2.SVL")
+    good = (SAMPLES / "luchtgeluid_bron_L2.SVL")
     if not good.exists():
         pytest.skip("sample missing")
     raw = bytearray(good.read_bytes())
@@ -78,9 +78,9 @@ def test_implausible_values_give_none(tmp_path):
     assert read_measurement_time(bytes(zeros)) is None
 
 
-@have("A_L2.SVL")
+@have("luchtgeluid_bron_L2.SVL")
 def test_seconds_have_two_second_resolution():
-    raw = bytearray((SAMPLES / "A_L2.SVL").read_bytes())
+    raw = bytearray((SAMPLES / "luchtgeluid_bron_L2.SVL").read_bytes())
     tick = struct.unpack_from("<H", raw, 0xFC)[0]
     assert read_measurement_time(bytes(raw)).second % 2 == 0
     raw[0xFC:0xFE] = struct.pack("<H", tick + 1)
@@ -88,12 +88,12 @@ def test_seconds_have_two_second_resolution():
 
 
 # ------------------------------------------------------------------ preamble (buffer not full)
-@have("B_L11.SVL", "B_L15.SVL", "977C_RT.SVL")
+@have("ontvangstruimte_RT_L11.SVL", "parser_RT_volle_buffer_L15.SVL", "977C_RT_L34.SVL")
 def test_preamble_follows_the_record_count():
     """4 words in front of the first record if the measurement stopped before the buffer was
     full (647 of 850, 380 of 400), none if it was exactly full (400 of 400)."""
-    for name, n, mx, pre in (("B_L11.SVL", 647, 850, 4), ("B_L15.SVL", 400, 400, 0),
-                             ("977C_RT.SVL", 380, 400, 4)):
+    for name, n, mx, pre in (("ontvangstruimte_RT_L11.SVL", 647, 850, 4), ("parser_RT_volle_buffer_L15.SVL", 400, 400, 0),
+                             ("977C_RT_L34.SVL", 380, 400, 4)):
         raw = (SAMPLES / name).read_bytes()
         buf = find_buffer(raw)
         assert (buf.n_records, buf.max_records) == (n, mx)
@@ -103,9 +103,9 @@ def test_preamble_follows_the_record_count():
         assert find_preamble(w, buf.data_start // 2, n, stride, frame, mx) == pre
 
 
-@have("B_L15.SVL")
+@have("parser_RT_volle_buffer_L15.SVL")
 def test_full_buffer_reverberation_file_reads_correctly():
-    r = read_rt(SAMPLES / "B_L15.SVL")
+    r = read_rt(SAMPLES / "parser_RT_volle_buffer_L15.SVL")
     assert r.levels.shape == (400, 31) and r.device.label == "SV 977D"
     assert r.levels.min() > -30 and r.levels.max() < 120                # aligned, not shifted
     z = r.broadband[:, 2]
@@ -139,14 +139,14 @@ def test_find_preamble_checks_the_data_and_refuses_unknown_layouts():
     assert find_preamble(shifted, 0, 3, 5, 2, max_records=9) == 4
 
 
-@have("A_L2.SVL", "B_L2.SVL", "B_L11.SVL", "C_L20.SVL")
+@have("luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "ontvangstruimte_RT_L11.SVL", "ontvangstruimte_BG_L20.SVL")
 def test_file_info_travels_with_the_results():
     from calc.airborne import compute_airborne
-    res = compute_airborne(SAMPLES / "A_L2.SVL", SAMPLES / "B_L2.SVL", SAMPLES / "C_L20.SVL",
-                           [SAMPLES / "B_L11.SVL"])
+    res = compute_airborne(SAMPLES / "luchtgeluid_bron_L2.SVL", SAMPLES / "luchtgeluid_ontvangst_L2.SVL", SAMPLES / "ontvangstruimte_BG_L20.SVL",
+                           [SAMPLES / "ontvangstruimte_RT_L11.SVL"])
     info = res.info
     assert set(info) == {"source", "receiver", "background", "rt"}
-    assert [i.name for i in info["source"]] == ["A_L2.SVL"] == res.names["source"]
+    assert [i.name for i in info["source"]] == ["luchtgeluid_bron_L2.SVL"] == res.names["source"]
     assert info["source"][0].measured_at == datetime(2026, 9, 22, 12, 11, 34)
     assert info["background"][0].measured_at == datetime(2026, 9, 28, 11, 40, 22)
     assert info["rt"][0].instrument == "SV 977D" and info["rt"][0].serial == 156226

@@ -210,7 +210,7 @@ def read_octave_setup(raw: bytes) -> tuple[int, int]:
 
     Sits at byte 0x26E: tag 74, length 12, 0x0101, 10, 3 (=1/3 octave), first
     index, n bands. The first index counts in tenths of a decade relative to
-    1 kHz (-31 -> 0.8 Hz, -17 -> 20 Hz). Verified on L1.SVL (-31, 45) and
+    1 kHz (-31 -> 0.8 Hz, -17 -> 20 Hz). Verified on luchtgeluid_bron_L1.SVL (-31, 45) and
     L11.SVL (-17, 31).
     """
     w = struct.unpack_from("<7h", raw, 0x26E)
@@ -304,6 +304,15 @@ class SvlFile:
             raise ValueError(f"{self.path.name}: time window {start}-{end} s is outside the "
                              f"measurement (0-{self.duration_s} s)")
         return self.seconds[start:end]
+
+    def laeq_per_second(self) -> np.ndarray:
+        """LAeq of every second (the level history), dB."""
+        return np.array([s.leq_broadband[0] for s in self.seconds])
+
+    def lafmax_per_second(self) -> np.ndarray:
+        """Highest LAF of every second (profile 1, see lafmax), dB. Not checked for the A
+        weighting: for display; lafmax() checks it."""
+        return np.array([s.profiles[0, 1] for s in self.seconds])
 
     def laeq(self, start: int = 0, end: int | None = None) -> float:
         """Broadband LAeq over a time window (default: the whole file)."""

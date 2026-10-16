@@ -61,6 +61,7 @@ as an arithmetic mean per band. The number of measurement positions is not check
 | `svl/rt.py` | reader of reverberation time files: level history and the stored RT60 table |
 | `calc/levels.py`, `iso16283.py`, `iso717.py` | background correction, DnT / L'nT, ISO 717 ratings and adaptation terms |
 | `calc/airborne.py`, `impact.py` | one airborne / impact calculation from files |
+| `calc/iso10052.py`, `installation.py` | installation noise (LAeq,nT / LAFmax,nT, ISO 10052 as used by NBN S 01-400-1): formulas, and one calculation from files with time windows |
 | `calc/building.py` | rooms, measurements, requirements, project file (`.json`), evaluation of a building |
 | `calc/results.py` | results as plain dictionaries (the JSON of the command line) |
 | `calc/cli.py` | the command line (`python -m calc`) |

@@ -45,6 +45,8 @@ def _files(info) -> dict:
 def evaluated_to_dict(ev: Evaluated, bands: bool = True) -> dict:
     """One measurement (airborne or impact) with its rating, requirement check and, if
     bands=True, the values per one-third-octave band."""
+    if ev.kind == "installation":
+        return _installation_evaluated(ev)
     airborne = ev.kind == "airborne"
     out = {
         "schema_version": SCHEMA_VERSION,
@@ -120,6 +122,21 @@ def evaluated_to_dict(ev: Evaluated, bands: bool = True) -> dict:
 def bases_text(kind: str) -> dict:
     """The allowed --basis values of a kind, with the quantity they stand for."""
     return dict(AIRBORNE_BASES if kind == "airborne" else IMPACT_BASES)
+
+
+def _installation_evaluated(ev: Evaluated) -> dict:
+    """An installation noise measurement of a building: the same keys as installation_to_dict,
+    plus the name and rooms; remarks are the short ones of the building overview."""
+    out = {"schema_version": SCHEMA_VERSION, "kind": "installation", "name": ev.name,
+           "source_room": ev.source_room, "receiver_room": ev.receiver_room,
+           "comment": ev.comment, "ok": ev.ok, "error": ev.error, "remarks": ev.notes,
+           "result": None, "requirement": None, "files": {}}
+    if ev.result is None:
+        return out
+    d = installation_to_dict(ev.result, ev.requirement)
+    out.update({k: d[k] for k in ("result", "requirement", "recordings", "reverberation", "files")})
+    out["remarks"] = ev.notes
+    return out
 
 
 def installation_to_dict(r, requirement: int | None = None) -> dict:

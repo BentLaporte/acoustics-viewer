@@ -8,12 +8,13 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from calc.building import (AIRBORNE_BASES, IMPACT_BASES, Evaluated, Project, Room,
+from calc.building import (AIRBORNE_BASES, IMPACT_BASES, KINDS, Evaluated, Project, Room,
                            airborne_details_files, evaluate_project, impact_details_files,
                            load_project, save_project)
 from export.report_options import ReportOptions
 
 from .building_dialogs import ReportDialog, RequirementsDialog, RoomDialog, SituationDialog
+from .installation_dialog import InstallationDialog
 from calc.colors import style_of
 from calc.iso717 import BANDS
 
@@ -252,7 +253,9 @@ class BuildingPage(QtWidgets.QWidget):
         self.meas_table.doubleClicked.connect(self.edit_measurement)
         ml.addWidget(self.meas_table)
         ml.addLayout(self.buttons([("Add airborne...", lambda: self.add_measurement("airborne")),
-                                   ("Add impact...", lambda: self.add_measurement("impact"))]))
+                                   ("Add impact...", lambda: self.add_measurement("impact")),
+                                   ("Add installation...",
+                                    lambda: self.add_measurement("installation"))]))
         ml.addLayout(self.buttons([("Edit...", self.edit_measurement),
                                    ("Duplicate", self.duplicate_measurement),
                                    ("Remove", self.remove_measurement),
@@ -283,9 +286,20 @@ class BuildingPage(QtWidgets.QWidget):
                                  "L'nT,w", "C_I", "Requirement", "Check", "Notes"],
                                 stretch_col=None)
         self.imp_bars = RatingBars("L'nT,w", "lower is better")
-        for title, table, bars in (("Airborne sound insulation", self.air_table, self.air_bars),
-                                   ("Impact sound", self.imp_table, self.imp_bars)):
+        # installation noise: one A-weighted value per measurement, the quantity per row
+        self.ins_table = _table(["Show", "Measurement", "Value", "Quantity", "Requirement",
+                                 "Check", "Notes"], stretch_col=None)
+        self.ins_bars = RatingBars("Installation noise", "lower is better")
+        self.tables = {"airborne": self.air_table, "impact": self.imp_table,
+                       "installation": self.ins_table}
+        self.bars = {"airborne": self.air_bars, "impact": self.imp_bars,
+                     "installation": self.ins_bars}
+        self.sections = {}
+        for kind, title in (("airborne", "Airborne sound insulation"), ("impact", "Impact sound"),
+                            ("installation", "Installation noise")):
+            table, bars = self.tables[kind], self.bars[kind]
             sec = QtWidgets.QWidget()
+            self.sections[kind] = sec
             sl = QtWidgets.QVBoxLayout(sec)
             sl.setContentsMargins(0, 0, 0, 0)
             lab = QtWidgets.QLabel(f"<b>{title}</b>")
@@ -363,8 +377,7 @@ class BuildingPage(QtWidgets.QWidget):
             t.setItem(i, 3, photos)
         m = self.meas_table
         names = p.situation_names()
-        reqs = [self.requirement_text("airborne", x.requirement) for x in p.airborne] + \
-               [self.requirement_text("impact", x.requirement) for x in p.impact]
+        reqs = [self.requirement_text(x.kind, x.requirement) for x in p.all_situations()]
         m.setRowCount(len(names))
         for i, (name, req) in enumerate(zip(names, reqs)):
             c = _cell(name, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
@@ -448,8 +461,7 @@ class BuildingPage(QtWidgets.QWidget):
                  f"<b style='color:{CHECK_FG['fails']}'>{c['fails']} do not comply</b>"]
         if c["inconclusive"]:
             parts.append(f"<b style='color:{CHECK_FG['inconclusive']}'>{c['inconclusive']} "
-                         "not conclusive</b> (bands close to the background could change the "
-                         "result)")
+                         "not conclusive</b> (background noise could change the result)")
         if c["no_result"]:
             parts.append(f"{c['no_result']} without result")
         if c["none"]:
@@ -462,13 +474,20 @@ class BuildingPage(QtWidgets.QWidget):
     def update_overview(self):
         p = self.project
         basis = {"airborne": AIRBORNE_BASES[p.airborne_basis], "impact": IMPACT_BASES[p.impact_basis]}
-        for table, kind in ((self.air_table, "airborne"), (self.imp_table, "impact")):
+        # a section without measurements is hidden; an empty building shows the two insulation
+        # sections, as before installation noise existed
+        present = {e.kind for e in self.evaluated} or {"airborne", "impact"}
+        for kind in KINDS:
+            self.sections[kind].setVisible(kind in present)
+        for kind, table in self.tables.items():
             table.blockSignals(True)
             # the requirement column is named after the quantity it is checked against
+            # (installation noise: the quantity is per measurement, in its own column)
             req_col = 5 if kind == "airborne" else 4
-            table.horizontalHeaderItem(req_col).setText(f"Req. ({basis[kind]})")
-            table.horizontalHeaderItem(req_col).setToolTip(
-                f"Requirement, checked against {basis[kind]}")
+            if kind in basis:
+                table.horizontalHeaderItem(req_col).setText(f"Req. ({basis[kind]})")
+                table.horizontalHeaderItem(req_col).setToolTip(
+                    f"Requirement, checked against {basis[kind]}")
             head = table.horizontalHeader()
             head.setSectionResizeMode(1, QtWidgets.QHeaderView.Interactive)
             table.setColumnWidth(1, 250)
@@ -491,8 +510,10 @@ class BuildingPage(QtWidgets.QWidget):
                 if kind == "airborne":
                     numbers = [value, minus(r.c) if r and r.c is not None else "-",
                                minus(r.ctr) if r and r.ctr is not None else "-"]
-                else:
+                elif kind == "impact":
                     numbers = [value, minus(r.ci) if r and r.ci is not None else "-"]
+                else:
+                    numbers = [value, e.basis_label]
                 chk = e.check
                 margin = "" if chk.margin is None else f" ({chk.margin:+d} dB)".replace("-", "\u2212")
                 notes = "; ".join(e.notes)
@@ -524,7 +545,7 @@ class BuildingPage(QtWidgets.QWidget):
     def visibility_changed(self, item):
         if item.column() != 0:
             return
-        kind = "airborne" if item.tableWidget() is self.air_table else "impact"
+        kind = next(k for k, t in self.tables.items() if t is item.tableWidget())
         key = (kind, item.data(QtCore.Qt.UserRole))
         if item.checkState() == QtCore.Qt.Checked:
             self.hidden.discard(key)
@@ -545,6 +566,11 @@ class BuildingPage(QtWidgets.QWidget):
                      "impact": IMPACT_BASES[self.project.impact_basis]}[kind]
             bars.update_items([(e.label, self.style(e)[0], e.assessed, e.requirement)
                                for e in vis], title)
+        vis = self.visible("installation")
+        quantities = sorted({e.basis_label for e in vis})
+        self.ins_bars.update_items([(f"{e.basis_label}: {e.label}", self.style(e)[0],
+                                     e.assessed, e.requirement) for e in vis],
+                                   " / ".join(quantities) or "Installation noise")
 
     def style(self, e):
         return style_of(self.color_index(e))
@@ -577,18 +603,19 @@ class BuildingPage(QtWidgets.QWidget):
                 for s in self.project.impact:
                     s.receiver_room = new.name if s.receiver_room == old.name else s.receiver_room
                     s.tapping_room = new.name if s.tapping_room == old.name else s.tapping_room
+                for s in self.project.installation:
+                    s.receiver_room = new.name if s.receiver_room == old.name else s.receiver_room
+                    s.source_room = new.name if s.source_room == old.name else s.source_room
             self.project.rooms[i] = new
             self.project.sort_rooms()
             self.changed()
 
     def users_of(self, room: str) -> list[str]:
         p = self.project
-        names = p.situation_names()
-        n = len(p.airborne)
-        return ([names[i] for i, s in enumerate(p.airborne)
-                 if room in (s.source_room, s.receiver_room)] +
-                [names[n + i] for i, s in enumerate(p.impact)
-                 if room in (s.receiver_room, s.tapping_room)])
+        other = {"airborne": "source_room", "impact": "tapping_room",
+                 "installation": "source_room"}
+        return [name for s, name in zip(p.all_situations(), p.situation_names())
+                if room in (s.receiver_room, getattr(s, other[s.kind]))]
 
     def remove_room(self):
         i = self.selected_row(self.rooms_table)
@@ -607,18 +634,26 @@ class BuildingPage(QtWidgets.QWidget):
 
     # ------------------------------------------------------------------ measurements
     def locate(self, row):
-        """Table row -> (kind, index in the project list)."""
-        n = len(self.project.airborne)
-        return ("airborne", row) if row < n else ("impact", row - n)
+        """Table row -> (kind, index in the project list); rows follow all_situations()."""
+        for kind in KINDS:
+            n = len(self.project.situations(kind))
+            if row < n:
+                return kind, row
+            row -= n
+        raise IndexError("no such measurement")
+
+    def situation_dialog(self, kind, taken, situation=None):
+        if kind == "installation":
+            return InstallationDialog(self.project, self.settings, taken, situation, parent=self)
+        return SituationDialog(kind, self.project, self.settings, taken, situation, parent=self)
 
     def add_measurement(self, kind):
         n_rooms = len(self.project.rooms)
-        taken = [x.base_name for x in (*self.project.airborne, *self.project.impact)]
-        dlg = SituationDialog(kind, self.project, self.settings, taken, parent=self)
+        taken = [x.base_name for x in self.project.all_situations()]
+        dlg = self.situation_dialog(kind, taken)
         accepted = dlg.exec()
         if accepted:
-            (self.project.airborne if kind == "airborne" else self.project.impact).append(
-                dlg.situation())
+            self.project.situations(kind).append(dlg.situation())
         if accepted or len(self.project.rooms) != n_rooms:     # rooms may be created in the dialog
             self.changed()
 
@@ -627,12 +662,11 @@ class BuildingPage(QtWidgets.QWidget):
         if row < 0:
             return
         kind, i = self.locate(row)
-        lst = self.project.airborne if kind == "airborne" else self.project.impact
+        lst = self.project.situations(kind)
         old = lst[i]
         n_rooms = len(self.project.rooms)
-        taken = [x.base_name for x in (*self.project.airborne, *self.project.impact)
-                 if x is not old]
-        dlg = SituationDialog(kind, self.project, self.settings, taken, old, parent=self)
+        taken = [x.base_name for x in self.project.all_situations() if x is not old]
+        dlg = self.situation_dialog(kind, taken, old)
         accepted = dlg.exec()
         if accepted:
             lst[i] = dlg.situation()
@@ -644,9 +678,9 @@ class BuildingPage(QtWidgets.QWidget):
         if row < 0:
             return
         kind, i = self.locate(row)
-        lst = self.project.airborne if kind == "airborne" else self.project.impact
+        lst = self.project.situations(kind)
         clone = copy.deepcopy(lst[i])
-        taken = {x.base_name for x in (*self.project.airborne, *self.project.impact)}
+        taken = {x.base_name for x in self.project.all_situations()}
         base, n = f"{clone.comment} copy".strip(), 2         # 'carpet copy', 'copy', 'copy 2'...
         clone.comment = base
         while clone.base_name in taken:
@@ -659,7 +693,7 @@ class BuildingPage(QtWidgets.QWidget):
         if row < 0:
             return
         kind, i = self.locate(row)
-        lst = self.project.airborne if kind == "airborne" else self.project.impact
+        lst = self.project.situations(kind)
         name = self.project.situation_names()[row]
         ok = QtWidgets.QMessageBox.question(self, "Remove measurement",
                                             f"Remove '{name}' from the building?")
@@ -679,15 +713,15 @@ class BuildingPage(QtWidgets.QWidget):
                 self, "Set requirement",
                 "Select one or more measurements first (Ctrl or Shift + click for several).")
             return
-        n_air = sum(1 for k, _ in sel if k == "airborne")
-        dlg = RequirementsDialog(self.project, n_air, len(sel) - n_air, parent=self)
+        n = {k: sum(1 for kind, _ in sel if kind == k) for k in KINDS}
+        dlg = RequirementsDialog(self.project, n["airborne"], n["impact"], n["installation"],
+                                 parent=self)
         if not dlg.exec():
             return
         values = dlg.values()
         for kind, i in sel:
             if kind in values:
-                lst = self.project.airborne if kind == "airborne" else self.project.impact
-                lst[i].requirement = values[kind]
+                self.project.situations(kind)[i].requirement = values[kind]
         self.changed()
 
     def show_details(self):
@@ -695,6 +729,9 @@ class BuildingPage(QtWidgets.QWidget):
         if row < 0:
             return
         kind, i = self.locate(row)
+        if kind == "installation":             # its details (level history) are in its dialog
+            self.edit_measurement()
+            return
         if kind == "airborne":
             files = airborne_details_files(self.project, self.project.airborne[i])
         else:

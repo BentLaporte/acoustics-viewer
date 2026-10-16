@@ -13,7 +13,7 @@ from calc.building import (AirborneSituation, ImpactSituation, Project, Room,  #
 from export.pdf_report import ReportOptions, build_pdf_report, default_report_name  # noqa: E402
 
 S = Path(__file__).parent.parent / "samples"
-NEED = ["A_L2.SVL", "B_L2.SVL", "B_L4.SVL", "C_L20.SVL", "B_L11.SVL"]
+NEED = ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL"]
 needs_samples = pytest.mark.skipif(not all((S / n).exists() for n in NEED),
                                    reason="sample files missing")
 DATE = dt.date(2026, 9, 30)
@@ -24,10 +24,10 @@ def f(n):
 
 
 def project() -> Project:
-    p = Project(name="Test building", background_files=[f("C_L20.SVL")])
-    p.rooms = [Room("A"), Room("B", [f("B_L11.SVL")])]
-    p.airborne = [AirborneSituation("A", "B", [f("A_L2.SVL")], [f("B_L2.SVL")], "wall", 54)]
-    p.impact = [ImpactSituation("B", [f("B_L4.SVL")], "A", "carpet", 40)]
+    p = Project(name="Test building", background_files=[f("ontvangstruimte_BG_L20.SVL")])
+    p.rooms = [Room("A"), Room("B", [f("ontvangstruimte_RT_L11.SVL")])]
+    p.airborne = [AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")], "wall", 54)]
+    p.impact = [ImpactSituation("B", [f("contactgeluid_L4.SVL")], "A", "carpet", 40)]
     p.report.client, p.report.location = "Client Ltd", "Main Street 1"
     p.report.author, p.report.remarks = "J. Doe", "Furnished.\nDoors closed."
     return p
@@ -52,7 +52,7 @@ def test_report_structure_and_content(tmp_path):
     # overview, comparison, airborne curves, impact curves, one page per measurement
     assert len(pages) == 6
     first = pages[0]
-    for text in ("Geluidsisolatiemetingen", "Test building", "Client Ltd", "Main Street 1",
+    for text in ("Geluidsmetingen", "Test building", "Client Ltd", "Main Street 1",
                  "J. Doe", "30 september 2026", "Furnished.", "Doors closed.",
                  "luchtgeluid", "Voldoet", "Voldoet niet", "2 metingen"):
         assert text in first, text
@@ -61,10 +61,10 @@ def test_report_structure_and_content(tmp_path):
     assert "Vergelijking" in pages[1]
     assert "per band" in pages[2] and "per band" in pages[3]
     assert "Luchtgeluid A naar B (wall)" in pages[4] and "Contactgeluid A naar B (carpet)" in pages[5]
-    assert "A_L2.SVL" in pages[4] and "B_L4.SVL" in pages[5]                # file names only
+    assert "luchtgeluid_bron_L2.SVL" in pages[4] and "contactgeluid_L4.SVL" in pages[5]                # file names only
     assert str(S) not in "".join(pages)                                      # no full paths
     assert "Pagina 6 van 6" in pages[5] and "Pagina 1 van 6" in first
-    assert reader.metadata.title == "Test building - geluidsisolatiemetingen"
+    assert reader.metadata.title == "Test building - geluidsmetingen"
     assert reader.metadata.author == "J. Doe"
 
 
@@ -101,7 +101,7 @@ def test_options_and_hidden(tmp_path):
 @needs_samples
 def test_problem_measurements_are_reported_not_fatal(tmp_path):
     p = project()
-    p.airborne.append(AirborneSituation("A", "B", [f("A_L2.SVL")], [str(S / "missing.SVL")],
+    p.airborne.append(AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [str(S / "missing.SVL")],
                                         "missing file"))
     p.rt_kind = "t30"
     _, _, pages = build(p, tmp_path)
@@ -117,8 +117,8 @@ def test_problem_measurements_are_reported_not_fatal(tmp_path):
 def test_special_characters_in_names_and_text(tmp_path):
     p = project()
     p.rooms += [Room("Caf\u00e9 <1> & Co")]
-    p.airborne.append(AirborneSituation("Caf\u00e9 <1> & Co", "B", [f("A_L2.SVL")],
-                                        [f("B_L2.SVL")], "\u2265 & <b>bold</b>"))
+    p.airborne.append(AirborneSituation("Caf\u00e9 <1> & Co", "B", [f("luchtgeluid_bron_L2.SVL")],
+                                        [f("luchtgeluid_ontvangst_L2.SVL")], "\u2265 & <b>bold</b>"))
     p.report.remarks = "Line with <tags> & ampersand \u2192 arrow"
     _, _, pages = build(p, tmp_path)
     joined = " ".join(pages)
@@ -130,9 +130,9 @@ def test_special_characters_in_names_and_text(tmp_path):
 def test_many_measurements_paginate(tmp_path):
     p = project()
     for k in range(25):
-        p.airborne.append(AirborneSituation("A", "B", [f("A_L2.SVL")], [f("B_L2.SVL")],
+        p.airborne.append(AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")],
                                             f"position {k}"))
-        p.impact.append(ImpactSituation("B", [f("B_L4.SVL")], "A", f"position {k}"))
+        p.impact.append(ImpactSituation("B", [f("contactgeluid_L4.SVL")], "A", f"position {k}"))
     _, reader, pages = build(p, tmp_path, ReportOptions(per_measurement_pages=False, date=DATE))
     assert len(pages) > 6                                   # tables and charts flow over pages
     assert "position 24" in " ".join(pages)
@@ -263,22 +263,22 @@ def test_each_file_shows_its_measurement_date_and_time(tmp_path):
     _, _, pages = build(project(), tmp_path)
     airborne, impact = pages[4], pages[5]
     assert "Meetbestanden (datum en tijd van de meting)" in airborne
-    # airborne: source A_L2 12:11, receiver B_L2 12:16, background 28/09 11:40, RT 12:44
-    assert "A_L2.SVL (22/09/2026 12:11)" in airborne
-    assert "B_L2.SVL (22/09/2026 12:16)" in airborne
-    assert "C_L20.SVL (28/09/2026 11:40)" in airborne            # another day: visible in the report
-    assert "B_L11.SVL (22/09/2026 12:44)" in airborne
-    assert "B_L4.SVL (22/09/2026 12:19)" in impact and "C_L20.SVL (28/09/2026 11:40)" in impact
+    # airborne: source luchtgeluid_bron_L2 12:11, receiver luchtgeluid_ontvangst_L2 12:16, background 28/09 11:40, RT 12:44
+    assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11)" in airborne
+    assert "luchtgeluid_ontvangst_L2.SVL (22/09/2026 12:16)" in airborne
+    assert "ontvangstruimte_BG_L20.SVL (28/09/2026 11:40)" in airborne            # another day: visible in the report
+    assert "ontvangstruimte_RT_L11.SVL (22/09/2026 12:44)" in airborne
+    assert "contactgeluid_L4.SVL (22/09/2026 12:19)" in impact and "ontvangstruimte_BG_L20.SVL (28/09/2026 11:40)" in impact
     assert str(S) not in airborne                                  # still no folders
 
 
 @needs_samples
 def test_several_files_per_role_are_listed_each_with_its_time(tmp_path):
     p = project()
-    p.airborne[0].receiver_files = [f("B_L2.SVL"), f("B_L4.SVL")]
+    p.airborne[0].receiver_files = [f("luchtgeluid_ontvangst_L2.SVL"), f("contactgeluid_L4.SVL")]
     _, _, pages = build(p, tmp_path)
     page = pages[4]
-    assert "B_L2.SVL (22/09/2026 12:16)" in page and "B_L4.SVL (22/09/2026 12:19)" in page
+    assert "luchtgeluid_ontvangst_L2.SVL (22/09/2026 12:16)" in page and "contactgeluid_L4.SVL (22/09/2026 12:19)" in page
 
 
 def test_when_text_formats_the_moment():
@@ -295,7 +295,7 @@ def test_results_without_file_info_fall_back_to_names(tmp_path):
         e.result.info = None                                      # e.g. results made by older code
     out = build_pdf_report(p, ev, tmp_path / "old.pdf", ReportOptions(date=DATE))
     text = " ".join(" ".join(pg.extract_text().split()) for pg in pypdf.PdfReader(str(out)).pages)
-    assert "A_L2.SVL" in text and "(22/09/2026" not in text
+    assert "luchtgeluid_bron_L2.SVL" in text and "(22/09/2026" not in text
 
 
 # ------------------------------------------------------------------ equipment, optional dates
@@ -306,7 +306,7 @@ def test_equipment_section_lists_the_instruments_and_what_they_measured(tmp_path
     _, _, pages = build(p, tmp_path)
     first = pages[0]
     assert "Apparatuur" in first and "Instrument Serienummer Gebruikt voor" in first
-    # A_L2 is from the instrument with serial 99942 (source room); B_L2/B_L4/C_L20/B_L11 from 156226
+    # luchtgeluid_bron_L2 is from the instrument with serial 99942 (source room); luchtgeluid_ontvangst_L2/contactgeluid_L4/ontvangstruimte_BG_L20/ontvangstruimte_RT_L11 from 156226
     assert "SV 977D 99942 geluiddrukniveaus bronruimte" in first
     assert "SV 977D 156226 geluiddrukniveaus ontvangstruimte, contactgeluiddrukniveaus ontvangstruimte, achtergrondgeluiddrukniveau, nagalmtijd" in first
     assert "\u2022 Calibrator type 4231" in first and "\u2022 Tapping machine Norsonic" in first
@@ -315,7 +315,7 @@ def test_equipment_section_lists_the_instruments_and_what_they_measured(tmp_path
 @needs_samples
 def test_equipment_only_counts_included_measurements(tmp_path):
     p = project()
-    hidden = {("airborne", "airborne A to B (wall)")}                 # the only one using A_L2
+    hidden = {("airborne", "airborne A to B (wall)")}                 # the only one using luchtgeluid_bron_L2
     _, _, pages = build(p, tmp_path, hidden=hidden)
     assert "99942" not in " ".join(pages)                              # that instrument is not listed
     assert "156226" in pages[0]
@@ -341,10 +341,10 @@ def test_file_dates_are_optional(tmp_path):
     p = project()
     _, _, with_dates = build(p, tmp_path, ReportOptions(date=DATE), name="a.pdf")
     _, _, no_dates = build(p, tmp_path, ReportOptions(file_dates=False, date=DATE), name="b.pdf")
-    assert "A_L2.SVL (22/09/2026 12:11)" in with_dates[4]
+    assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11)" in with_dates[4]
     assert "Meetbestanden (datum en tijd van de meting)" in with_dates[4]
     assert "22/09/2026" not in no_dates[4] and "28/09/2026" not in no_dates[4]
-    assert "A_L2.SVL" in no_dates[4] and "Meetbestanden" in no_dates[4]
+    assert "luchtgeluid_bron_L2.SVL" in no_dates[4] and "Meetbestanden" in no_dates[4]
     assert "datum en tijd" not in no_dates[4]
     assert "SV 977D" in no_dates[0]                                    # equipment stays
 

@@ -1,11 +1,11 @@
 """The SV 977C files compared with SvanPC++ (values exported to Excel by the project owner).
 
-  * 977C_example.SVL = "L1.SVL": SvanPC++ "Total results", 1/3 Oct LZeq (SR) [dB], 10 s,
+  * 977C_L1.SVL = "L1.SVL": SvanPC++ "Total results", 1/3 Oct LZeq (SR) [dB], 10 s,
     0.8 Hz ... 20 kHz, started 28/09/2026 11:08:35; and its "Header information"
     (Device type SVAN 977C, serial 98053, internal software version 2.23.1, logger step 1 s,
     10 logger records, 1/3 octave in logger: Leq, Lmin, Lmax; profiles A fast, A slow, Z fast
     with LApeak/LAFmax/LAFmin/LAeq, LApeak/LASmax/LASmin/LAeq, LZpeak/LZFmax/LZFmin/LZeq).
-  * 977C_RT.SVL = "L34.SVL": SvanPC++ "RT60 (SR)" table.
+  * 977C_RT_L34.SVL = "L34.SVL": SvanPC++ "RT60 (SR)" table.
 Skipped when the sample files are not present.
 """
 from pathlib import Path
@@ -17,7 +17,7 @@ from svl.parser import read_svl
 from svl.rt import read_rt
 
 SAMPLES = Path(__file__).parent.parent / "samples"
-LEVEL, RT = SAMPLES / "977C_example.SVL", SAMPLES / "977C_RT.SVL"
+LEVEL, RT = SAMPLES / "977C_L1.SVL", SAMPLES / "977C_RT_L34.SVL"
 
 # SvanPC++ "Total results": 1/3 Oct LZeq (SR) [dB], 0.8 Hz ... 20 kHz (2 decimals)
 SVANPC_LZEQ = np.array([

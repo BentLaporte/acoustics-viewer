@@ -17,7 +17,7 @@ from calc.results import evaluated_to_dict
 
 ROOT = Path(__file__).parent.parent
 S = ROOT / "samples"
-NEED = ["A_L2.SVL", "B_L2.SVL", "B_L4.SVL", "C_L20.SVL", "B_L11.SVL"]
+NEED = ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL"]
 needs_samples = pytest.mark.skipif(not all((S / n).exists() for n in NEED), reason="samples missing")
 
 
@@ -35,13 +35,13 @@ def run(capsys, *argv):
 
 
 def air_args(*extra):
-    return ["airborne", "--source", S / "A_L2.SVL", "--receiver", S / "B_L2.SVL",
-            "--background", S / "C_L20.SVL", "--rt", S / "B_L11.SVL", *extra]
+    return ["airborne", "--source", S / "luchtgeluid_bron_L2.SVL", "--receiver", S / "luchtgeluid_ontvangst_L2.SVL",
+            "--background", S / "ontvangstruimte_BG_L20.SVL", "--rt", S / "ontvangstruimte_RT_L11.SVL", *extra]
 
 
 def imp_args(*extra):
-    return ["impact", "--tapping", S / "B_L4.SVL", "--background", S / "C_L20.SVL",
-            "--rt", S / "B_L11.SVL", *extra]
+    return ["impact", "--tapping", S / "contactgeluid_L4.SVL", "--background", S / "ontvangstruimte_BG_L20.SVL",
+            "--rt", S / "ontvangstruimte_RT_L11.SVL", *extra]
 
 
 # ------------------------------------------------------------------ airborne / impact
@@ -52,7 +52,7 @@ def test_airborne_text(capsys):
     assert "DnT,w = 54 dB   C = -1   Ctr = -4" in out
     assert "Reference curve shifted +2 dB; sum of unfavourable deviations 25.8 dB" in out
     assert "Requirement DnT,w at least 54 dB: Complies (+0 dB)" in out
-    assert "A_L2.SVL (22/09/2026 12:11, SV 977D #99942)" in out         # file, date, instrument
+    assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11, SV 977D #99942)" in out         # file, date, instrument
     assert str(S) not in out                                             # no folders
 
 
@@ -60,7 +60,7 @@ def test_airborne_text(capsys):
 def test_airborne_json_matches_the_calculation(capsys):
     code, out, _ = run(capsys, *air_args("--format", "json", "--requirement", "55"))
     d = strict_json(out)
-    res = compute_airborne(S / "A_L2.SVL", S / "B_L2.SVL", S / "C_L20.SVL", S / "B_L11.SVL")
+    res = compute_airborne(S / "luchtgeluid_bron_L2.SVL", S / "luchtgeluid_ontvangst_L2.SVL", S / "ontvangstruimte_BG_L20.SVL", S / "ontvangstruimte_RT_L11.SVL")
     assert code == 0 and d["schema_version"] == 1 and d["kind"] == "airborne" and d["ok"]
     assert d["result"]["quantity"] == "DnT,w"
     assert (d["result"]["single_number_db"], d["result"]["C"], d["result"]["Ctr"]) == (54, -1, -4)
@@ -70,7 +70,7 @@ def test_airborne_json_matches_the_calculation(capsys):
     assert np.allclose(d["bands"]["standardized_level_difference_DnT_db"], res.dnt, atol=0.006)
     assert np.allclose(d["bands"]["reverberation_time_s"], res.t, atol=0.0006)
     assert d["bands"]["reference_curve_shifted_db"][7] == 54            # rating at 500 Hz
-    assert d["files"]["source"][0] == {"name": "A_L2.SVL", "measured_at": "2026-09-22T12:11:34",
+    assert d["files"]["source"][0] == {"name": "luchtgeluid_bron_L2.SVL", "measured_at": "2026-09-22T12:11:34",
                                        "instrument": "SV 977D", "serial": 99942}
     assert set(d["files"]) == {"source", "receiver", "background", "rt"}
     assert str(S) not in out
@@ -116,8 +116,8 @@ def test_strict_exit_status(capsys):
 
 @needs_samples
 def test_several_files_are_averaged(capsys):
-    args = ["airborne", "--source", S / "A_L2.SVL", "--receiver", S / "B_L2.SVL", S / "B_L2.SVL",
-            "--background", S / "C_L20.SVL", "--rt", S / "B_L11.SVL", S / "B_L11.SVL",
+    args = ["airborne", "--source", S / "luchtgeluid_bron_L2.SVL", "--receiver", S / "luchtgeluid_ontvangst_L2.SVL", S / "luchtgeluid_ontvangst_L2.SVL",
+            "--background", S / "ontvangstruimte_BG_L20.SVL", "--rt", S / "ontvangstruimte_RT_L11.SVL", S / "ontvangstruimte_RT_L11.SVL",
             "--format", "json"]
     d = strict_json(run(capsys, *args)[1])
     assert d["result"]["single_number_db"] == 54                         # identical files: same
@@ -135,10 +135,10 @@ def test_output_file(capsys, tmp_path):
 # ------------------------------------------------------------------ errors
 @needs_samples
 def test_errors_exit_2_with_a_message(capsys):
-    code, out, err = run(capsys, "airborne", "--source", S / "nope.SVL", "--receiver", S / "B_L2.SVL",
-                         "--background", S / "C_L20.SVL", "--rt", S / "B_L11.SVL")
+    code, out, err = run(capsys, "airborne", "--source", S / "nope.SVL", "--receiver", S / "luchtgeluid_ontvangst_L2.SVL",
+                         "--background", S / "ontvangstruimte_BG_L20.SVL", "--rt", S / "ontvangstruimte_RT_L11.SVL")
     assert code == 2 and out == "" and err.startswith("error: file not found")
-    code, out, err = run(capsys, *imp_args("--rt", S / "B_L4.SVL"))        # a level file as RT file
+    code, out, err = run(capsys, *imp_args("--rt", S / "contactgeluid_L4.SVL"))        # a level file as RT file
     assert code == 2 and "reverberation time" in err
     code, _, err = run(capsys, "info", S / "README.md")
     assert code == 2 and "not a readable level or reverberation time file" in err
@@ -160,7 +160,7 @@ def test_broken_pipe_is_quiet(monkeypatch, capsys):
     def boom(text, args):
         raise BrokenPipeError
     monkeypatch.setattr(cli, "_emit", boom)
-    if not (S / "A_L2.SVL").exists():
+    if not (S / "luchtgeluid_bron_L2.SVL").exists():
         pytest.skip("samples missing")
     assert cli.main([str(a) for a in air_args()]) == 0
 
@@ -168,39 +168,39 @@ def test_broken_pipe_is_quiet(monkeypatch, capsys):
 # ------------------------------------------------------------------ info
 @needs_samples
 def test_info_level_and_reverberation_files(capsys):
-    d = strict_json(run(capsys, "info", S / "A_L2.SVL", "--format", "json")[1])
+    d = strict_json(run(capsys, "info", S / "luchtgeluid_bron_L2.SVL", "--format", "json")[1])
     assert (d["kind"], d["instrument"], d["serial"], d["duration_s"]) == ("level", "SV 977D", 99942, 10)
     assert d["measured_at"] == "2026-09-22T12:11:34" and d["laeq_db"] == pytest.approx(96.26)
     assert list(d["lzeq_db_by_band_hz"])[:2] == ["100", "125"] and len(d["lzeq_db_by_band_hz"]) == 16
-    d = strict_json(run(capsys, "info", S / "B_L11.SVL", "--format", "json")[1])
+    d = strict_json(run(capsys, "info", S / "ontvangstruimte_RT_L11.SVL", "--format", "json")[1])
     assert (d["kind"], d["records"]) == ("reverberation", 647)
     assert d["t30_s_by_band_hz"]["500"] == pytest.approx(1.312)
-    both = strict_json(run(capsys, "info", S / "A_L2.SVL", S / "B_L11.SVL", "--format", "json")[1])
+    both = strict_json(run(capsys, "info", S / "luchtgeluid_bron_L2.SVL", S / "ontvangstruimte_RT_L11.SVL", "--format", "json")[1])
     assert isinstance(both, list) and [x["kind"] for x in both] == ["level", "reverberation"]
-    text = run(capsys, "info", S / "A_L2.SVL")[1]
-    assert text.startswith("A_L2.SVL: level file, SV 977D #99942, measured 2026-09-22T12:11:34")
+    text = run(capsys, "info", S / "luchtgeluid_bron_L2.SVL")[1]
+    assert text.startswith("luchtgeluid_bron_L2.SVL: level file, SV 977D #99942, measured 2026-09-22T12:11:34")
 
 
-@pytest.mark.skipif(not (S / "977C_example.SVL").exists() and not (S / "977C_RT.SVL").exists(),
+@pytest.mark.skipif(not (S / "977C_L1.SVL").exists() and not (S / "977C_RT_L34.SVL").exists(),
                     reason="977C samples missing")
 def test_info_for_the_977c(capsys):
-    if (S / "977C_example.SVL").exists():
-        d = strict_json(run(capsys, "info", S / "977C_example.SVL", "--format", "json")[1])
+    if (S / "977C_L1.SVL").exists():
+        d = strict_json(run(capsys, "info", S / "977C_L1.SVL", "--format", "json")[1])
         assert d["instrument"] == "SV 977C" and d["serial"] == 98053
-    if (S / "977C_RT.SVL").exists():
-        d = strict_json(run(capsys, "info", S / "977C_RT.SVL", "--format", "json")[1])
+    if (S / "977C_RT_L34.SVL").exists():
+        d = strict_json(run(capsys, "info", S / "977C_RT_L34.SVL", "--format", "json")[1])
         assert d["kind"] == "reverberation" and d["records"] == 380
 
 
 # ------------------------------------------------------------------ building
 def building(tmp_path, with_error=False, requirements=(54, 40)):
     f = lambda n: str(S / n)                                              # noqa: E731
-    p = Project(name="CLI building", background_files=[f("C_L20.SVL")])
-    p.rooms = [Room("A"), Room("B", [f("B_L11.SVL")])]
-    p.airborne = [AirborneSituation("A", "B", [f("A_L2.SVL")], [f("B_L2.SVL")], "wall", requirements[0])]
-    p.impact = [ImpactSituation("B", [f("B_L4.SVL")], "A", "carpet", requirements[1])]
+    p = Project(name="CLI building", background_files=[f("ontvangstruimte_BG_L20.SVL")])
+    p.rooms = [Room("A"), Room("B", [f("ontvangstruimte_RT_L11.SVL")])]
+    p.airborne = [AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")], "wall", requirements[0])]
+    p.impact = [ImpactSituation("B", [f("contactgeluid_L4.SVL")], "A", "carpet", requirements[1])]
     if with_error:
-        p.airborne.append(AirborneSituation("A", "B", [f("A_L2.SVL")], [str(S / "gone.SVL")], "broken"))
+        p.airborne.append(AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [str(S / "gone.SVL")], "broken"))
     path = tmp_path / "b.json"
     save_project(p, path)
     return path
@@ -261,7 +261,7 @@ def test_building_pdf_options(capsys, tmp_path):
     assert code == 0 and "report written" in err and out.read_bytes()[:5] == b"%PDF-"
     pages = [" ".join(p.extract_text().split()) for p in pypdf.PdfReader(str(out)).pages]
     assert "1 oktober 2026" in pages[0] and len(pages) == 6
-    assert "A_L2.SVL (22/09/2026 12:11)" in " ".join(pages)
+    assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11)" in " ".join(pages)
     short = tmp_path / "s.pdf"
     run(capsys, "building", path, "--pdf", short, "--no-dates", "--no-measurement-pages",
         "--no-band-tables", "--no-photos")
@@ -288,7 +288,7 @@ def test_building_pdf_switches(capsys, tmp_path):
         "--no-requirements")
     got = text(out)
     assert "Apparatuur" not in got and "Toelichting" not in got and "Voldoet" not in got
-    assert "Eisen:" not in got and "Geluidsisolatiemetingen" in got
+    assert "Eisen:" not in got and "Geluidsmetingen" in got
     # the choices saved in the project (made in the viewer) are the starting point of the command line
     project = load_project(path)
     project.report_options = {"equipment": False, "notes": False}
@@ -329,7 +329,7 @@ def test_examples_are_fabricated_and_free_of_folders():
 
 @needs_samples
 def test_python_m_calc_runs_as_a_program():
-    r = subprocess.run([sys.executable, "-m", "calc", "info", str(S / "A_L2.SVL")], cwd=ROOT,
+    r = subprocess.run([sys.executable, "-m", "calc", "info", str(S / "luchtgeluid_bron_L2.SVL")], cwd=ROOT,
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and "level file, SV 977D #99942" in r.stdout
     r = subprocess.run([sys.executable, "-m", "calc", "--help"], cwd=ROOT, capture_output=True,

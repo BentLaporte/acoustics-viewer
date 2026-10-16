@@ -21,9 +21,11 @@ Numbers in the JSON are plain floats/ints, `null` where a value is missing (neve
 
 ## Where things are
 
-* Standard calculations: `calc/levels.py`, `calc/iso16283.py`, `calc/iso717.py` (pure functions).
+* Standard calculations: `calc/levels.py`, `calc/iso16283.py`, `calc/iso717.py`,
+  `calc/iso10052.py` (installation noise) (pure functions).
 * File readers: `svl/parser.py` (level files), `svl/rt.py` (reverberation time files).
-* Everything that combines files: `calc/airborne.py`, `calc/impact.py`, `calc/building.py`.
+* Everything that combines files: `calc/airborne.py`, `calc/impact.py`, `calc/installation.py`,
+  `calc/building.py`. The installation noise dialog of the viewer: `gui/installation_dialog.py`.
 * Output: `calc/results.py` (JSON), `calc/cli.py` (command line), `export/pdf_report.py`, `gui/`.
 
 ## Rules that matter

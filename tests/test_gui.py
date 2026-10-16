@@ -9,9 +9,9 @@ pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
 S = Path(__file__).parent.parent / "samples"
-AIR = {"source": S / "A_L2.SVL", "receiver": S / "B_L2.SVL",
-       "background": S / "C_L20.SVL", "rt": S / "B_L11.SVL"}
-IMP = {"tapping": S / "B_L4.SVL", "background": S / "C_L20.SVL", "rt": S / "B_L11.SVL"}
+AIR = {"source": S / "luchtgeluid_bron_L2.SVL", "receiver": S / "luchtgeluid_ontvangst_L2.SVL",
+       "background": S / "ontvangstruimte_BG_L20.SVL", "rt": S / "ontvangstruimte_RT_L11.SVL"}
+IMP = {"tapping": S / "contactgeluid_L4.SVL", "background": S / "ontvangstruimte_BG_L20.SVL", "rt": S / "ontvangstruimte_RT_L11.SVL"}
 pytestmark = pytest.mark.skipif(
     not all(p.exists() for p in {**AIR, **IMP}.values()), reason="sample files missing")
 
@@ -90,7 +90,7 @@ def test_main_window_shares_background_and_rt(app, monkeypatch, tmp_path):
     w.impact.rows["rt"].set_path(str(IMP["rt"]))
     assert w.airborne.rows["rt"].path() == str(IMP["rt"])
     # an already filled row is never overwritten
-    other = str(S / "B_L2.SVL")
+    other = str(S / "luchtgeluid_ontvangst_L2.SVL")
     w.impact.rows["background"].set_path(other)
     assert w.airborne.rows["background"].path() == str(AIR["background"])
     w.load({**AIR, **IMP})
@@ -113,7 +113,7 @@ def test_several_files_are_averaged_and_explained(app, settings):
     w = ImpactPage(settings)
     w.load({"tapping": [IMP["tapping"], IMP["tapping"], IMP["tapping"]],
             "background": IMP["background"], "rt": [IMP["rt"], IMP["rt"]]})
-    assert w.rows["tapping"].edit.text().startswith("3 files: B_L4.SVL")
+    assert w.rows["tapping"].edit.text().startswith("3 files: contactgeluid_L4.SVL")
     assert w.result.rating.value == 44                          # identical files: same result
     assert "tapping machine positions: 3" in w.summary.text()
     assert "reverberation time decays: 2" in w.summary.text()
@@ -124,12 +124,12 @@ def test_file_row_add_and_clear(app, settings, monkeypatch):
     from PySide6 import QtWidgets
     from gui.widgets import FileRow
     row = FileRow("x", settings)
-    row.set_paths([str(S / "A_L2.SVL")])
+    row.set_paths([str(S / "luchtgeluid_bron_L2.SVL")])
     monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames",
-                        lambda *a, **k: ([str(S / "B_L2.SVL"), str(S / "A_L2.SVL")], ""))
+                        lambda *a, **k: ([str(S / "luchtgeluid_ontvangst_L2.SVL"), str(S / "luchtgeluid_bron_L2.SVL")], ""))
     row.browse(add=True)                                        # duplicates are skipped
-    assert [Path(p).name for p in row.paths()] == ["A_L2.SVL", "B_L2.SVL"]
+    assert [Path(p).name for p in row.paths()] == ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL"]
     row.browse(add=False)                                       # replaces
-    assert [Path(p).name for p in row.paths()] == ["B_L2.SVL", "A_L2.SVL"]
+    assert [Path(p).name for p in row.paths()] == ["luchtgeluid_ontvangst_L2.SVL", "luchtgeluid_bron_L2.SVL"]
     row.clear_button.click()
     assert row.paths() == [] and row.path() == ""

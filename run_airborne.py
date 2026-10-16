@@ -1,8 +1,8 @@
 """Airborne sound insulation DnT,w (C; Ctr) from four SVL files.
 
     python run_airborne.py
-    python run_airborne.py --source samples/A_L2.SVL --receiver samples/B_L2.SVL \
-        --background samples/C_L20.SVL --rt samples/B_L11.SVL --rt-kind t30
+    python run_airborne.py --source samples/luchtgeluid_bron_L2.SVL --receiver samples/luchtgeluid_ontvangst_L2.SVL \
+        --background samples/ontvangstruimte_BG_L20.SVL --rt samples/ontvangstruimte_RT_L11.SVL --rt-kind t30
 
 Each option accepts several files (positions / decays); they are averaged.
 """
@@ -18,10 +18,10 @@ S = Path(__file__).parent / "samples"
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", nargs="+", default=[S / "A_L2.SVL"])
-    ap.add_argument("--receiver", nargs="+", default=[S / "B_L2.SVL"])
-    ap.add_argument("--background", nargs="+", default=[S / "C_L20.SVL"])
-    ap.add_argument("--rt", nargs="+", default=[S / "B_L11.SVL"])
+    ap.add_argument("--source", nargs="+", default=[S / "luchtgeluid_bron_L2.SVL"])
+    ap.add_argument("--receiver", nargs="+", default=[S / "luchtgeluid_ontvangst_L2.SVL"])
+    ap.add_argument("--background", nargs="+", default=[S / "ontvangstruimte_BG_L20.SVL"])
+    ap.add_argument("--rt", nargs="+", default=[S / "ontvangstruimte_RT_L11.SVL"])
     ap.add_argument("--rt-kind", default="t30", choices=["edt", "t20", "t30"])
     a = ap.parse_args()
     files = [p for group in (a.source, a.receiver, a.background, a.rt) for p in group]

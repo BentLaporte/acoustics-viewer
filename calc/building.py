@@ -5,8 +5,11 @@ Model
                a receiving room) and an optional own background measurement.
   * Airborne   source room + receiving room, level files of both rooms.
   * Impact     receiving room (+ optional tapping room), tapping machine level files.
+  * Installation  receiving room (+ optional room where the installation is), level files
+               with an optional time window each (the operating cycle), LAeq or LAFmax.
   * Project    the building background (used by every room without its own background),
-               the reverberation time kind, and the lists above.
+               the reverberation time kind (airborne and impact; installation noise always
+               uses T30, or T20 where T30 is missing), and the lists above.
 
 Every measurement is evaluated on its own with the same calculations as the single
 measurement pages; an error in one measurement never stops the others.
@@ -23,13 +26,17 @@ import numpy as np
 
 from .airborne import AirborneResult, compute_airborne
 from .impact import ImpactResult, compute_impact
+from .installation import QUANTITIES, InstallationResult, Recording, compute_installation
 
 SCHEMA_VERSION = 2          # 2: measurements have a comment instead of a stored name
+KINDS = ("airborne", "impact", "installation")
 
 
 # Quantities a requirement can be checked against (chosen per building and measurement type)
 AIRBORNE_BASES = {"w": "DnT,w", "wc": "DnT,w + C", "wctr": "DnT,w + Ctr"}
 IMPACT_BASES = {"w": "L'nT,w", "wci": "L'nT,w + C_I"}
+# installation noise: chosen per measurement (stationary or transient installation)
+INSTALLATION_QUANTITIES = QUANTITIES          # 'laeq' -> 'LAeq,nT', 'lafmax' -> 'LAFmax,nT'
 
 
 def natural_key(text: str):
@@ -40,9 +47,12 @@ def natural_key(text: str):
 
 
 def situation_name(kind: str, source_room: str, receiver_room: str, comment: str = "") -> str:
-    """'airborne <source room> to <receiving room> (<comment>)' - the automatic name."""
-    core = f"{kind} {source_room} to {receiver_room}" if source_room else \
-        f"{kind} to {receiver_room}"
+    """'airborne <source room> to <receiving room> (<comment>)' - the automatic name.
+    Installation noise without a source room: 'installation in <room> (<comment>)'."""
+    if source_room:
+        core = f"{kind} {source_room} to {receiver_room}"
+    else:
+        core = f"{kind} {'in' if kind == 'installation' else 'to'} {receiver_room}"
     comment = comment.strip()
     return f"{core} ({comment})" if comment else core
 
@@ -94,6 +104,23 @@ class ImpactSituation:
 
 
 @dataclass
+class InstallationSituation:
+    receiver_room: str
+    recordings: list[Recording] = field(default_factory=list)   # level files + time windows
+    source_room: str = ""           # room where the installation is (optional, informative)
+    comment: str = ""               # e.g. the installation: heat pump, ventilation position 3
+    requirement: int | None = None  # dB: LAeq,nT or LAFmax,nT must be at most this
+    quantity: str = "laeq"          # 'laeq' (stationary) | 'lafmax' (transient)
+    method: str = "integrated"      # 'integrated' (moving microphone) | 'positions'
+
+    kind = "installation"
+
+    @property
+    def base_name(self) -> str:
+        return situation_name(self.kind, self.source_room, self.receiver_room, self.comment)
+
+
+@dataclass
 class ReportInfo:
     """Free text that goes on the first page of the PDF report."""
     client: str = ""
@@ -113,6 +140,7 @@ class Project:
     rooms: list[Room] = field(default_factory=list)
     airborne: list[AirborneSituation] = field(default_factory=list)
     impact: list[ImpactSituation] = field(default_factory=list)
+    installation: list[InstallationSituation] = field(default_factory=list)
     report: ReportInfo = field(default_factory=ReportInfo)
     # what the PDF report contains: switch name -> True/False (see export/report_options.py);
     # empty = all defaults. Kept as a plain dict so calc/ does not depend on export/.
@@ -125,12 +153,21 @@ class Project:
         """Keep the rooms in natural alphabetical order (numbers as numbers)."""
         self.rooms.sort(key=lambda r: natural_key(r.name))
 
+    def situations(self, kind: str) -> list:
+        """The list of measurements of one kind ('airborne', 'impact', 'installation')."""
+        return {"airborne": self.airborne, "impact": self.impact,
+                "installation": self.installation}[kind]
+
+    def all_situations(self) -> list:
+        """Every measurement: airborne first, then impact, then installation, entry order."""
+        return [*self.airborne, *self.impact, *self.installation]
+
     def situation_names(self) -> list[str]:
-        """Unique automatic names: airborne measurements first, then impact, entry order.
+        """Unique automatic names, in the order of all_situations().
         Two measurements that would get the same name are told apart with ' #2', ' #3'..."""
         seen: dict[str, int] = {}
         names = []
-        for s in [*self.airborne, *self.impact]:
+        for s in self.all_situations():
             base = s.base_name
             seen[base] = seen.get(base, 0) + 1
             names.append(base if seen[base] == 1 else f"{base} #{seen[base]}")
@@ -155,15 +192,15 @@ class Check:
 
 @dataclass
 class Evaluated:
-    kind: str                      # 'airborne' | 'impact'
+    kind: str                      # 'airborne' | 'impact' | 'installation'
     name: str
-    source_room: str               # tapping room for impact (may be '')
+    source_room: str               # tapping room for impact, installation room (may be '')
     receiver_room: str
-    result: AirborneResult | ImpactResult | None
+    result: AirborneResult | ImpactResult | InstallationResult | None
     error: str | None = None
     comment: str = ""
     requirement: int | None = None
-    basis: str = "w"
+    basis: str = "w"               # installation: the quantity, 'laeq' | 'lafmax'
 
     @property
     def label(self) -> str:
@@ -178,16 +215,22 @@ class Evaluated:
 
     @property
     def rating(self):
-        return None if self.result is None else self.result.rating
+        """The ISO 717 rating (airborne, impact); None for installation noise."""
+        if self.result is None or self.kind == "installation":
+            return None
+        return self.result.rating
 
     @property
     def basis_label(self) -> str:
-        return (AIRBORNE_BASES if self.kind == "airborne" else IMPACT_BASES)[self.basis]
+        return {"airborne": AIRBORNE_BASES, "impact": IMPACT_BASES,
+                "installation": INSTALLATION_QUANTITIES}[self.kind][self.basis]
 
     @property
     def assessed(self) -> int | None:
-        """The value the requirement is checked against (DnT,w, DnT,w + C, ...)."""
+        """The value the requirement is checked against (DnT,w, DnT,w + C, ..., LAeq,nT)."""
         r = self.result
+        if self.kind == "installation":
+            return self.value
         if r is None or r.rating is None:
             return None
         w = r.rating.value
@@ -221,17 +264,22 @@ class Evaluated:
             else self.requirement - value
         if margin >= 0:
             return Check("complies", margin)
+        if self.kind == "installation":              # background noise can only add sound
+            return Check("inconclusive" if self.result.background_affected else "fails", margin)
         return Check("inconclusive" if self._limit_matters() else "fails", margin)
 
     @property
     def curve(self) -> np.ndarray | None:
-        """DnT (airborne) or L'nT (impact) per band, 100 ... 3150 Hz."""
-        if self.result is None:
+        """DnT (airborne) or L'nT (impact) per band, 100 ... 3150 Hz; None for installation
+        noise (a single A-weighted value)."""
+        if self.result is None or self.kind == "installation":
             return None
         return self.result.dnt if self.kind == "airborne" else self.result.lnt
 
     @property
     def value(self) -> int | None:
+        if self.kind == "installation":
+            return None if self.result is None else self.result.value
         return None if self.rating is None else self.rating.value
 
     @property
@@ -239,6 +287,8 @@ class Evaluated:
         if self.error:
             return [self.error]
         r = self.result
+        if self.kind == "installation":
+            return installation_notes(r)
         notes = []
         if r.rating is None:
             missing = ", ".join(str(int(f)) for f in r.bands[~np.isfinite(self.curve)])
@@ -250,6 +300,27 @@ class Evaluated:
         if any(c > 1 for c in counts):
             notes.append("averaged over several files")
         return notes
+
+
+INTEGRATED_NOTE = "integrated method (moving microphone)"
+
+
+def installation_notes(r: InstallationResult) -> list[str]:
+    """Short remarks of an installation noise measurement (the viewer, the JSON and, translated,
+    the report). INTEGRATED_NOTE can be left out of the report with a switch."""
+    notes = []
+    if r.method == "integrated":
+        notes.append(INTEGRATED_NOTE)
+        if len(r.recordings) > 1:
+            notes.append("averaged over several files")
+    if r.t20_used:
+        notes.append("T20 used at " + ", ".join(str(int(hz)) for hz in sorted(r.t20_used))
+                     + " Hz (no T30)")
+    if r.background is None:
+        notes.append("background not checked")
+    elif r.background_affected:
+        notes.append("within 6 dB of background (value overestimated)")
+    return notes
 
 
 def _need(files, what: str):
@@ -297,6 +368,24 @@ def _evaluate_impact(project: Project, s: ImpactSituation, name: str) -> Evaluat
                          _error_text(exc), s.comment, s.requirement, project.impact_basis)
 
 
+def _evaluate_installation(project: Project, s: InstallationSituation, name: str) -> Evaluated:
+    try:
+        recv = project.room(s.receiver_room)
+        if recv is None:
+            raise ValueError(f"room '{s.receiver_room}' does not exist")
+        if s.source_room and project.room(s.source_room) is None:
+            raise ValueError(f"source room '{s.source_room}' does not exist")
+        _need(s.recordings, "installation noise level files")
+        _need(recv.rt_files, f"reverberation time files for room '{recv.name}'")
+        bg = project.background_for(recv) or None      # a check only, so it may be missing
+        res = compute_installation(s.recordings, recv.rt_files, bg, s.quantity, s.method)
+        return Evaluated("installation", name, s.source_room, s.receiver_room, res,
+                         comment=s.comment, requirement=s.requirement, basis=s.quantity)
+    except Exception as exc:
+        return Evaluated("installation", name, s.source_room, s.receiver_room, None,
+                         _error_text(exc), s.comment, s.requirement, s.quantity)
+
+
 def _error_text(exc: Exception) -> str:
     if isinstance(exc, FileNotFoundError):
         return f"file not found: {Path(str(exc.filename)).name}"
@@ -307,7 +396,7 @@ def equipment_used(evaluated) -> list[tuple[str, int, tuple[str, ...]]]:
     """The measuring instruments behind the files of the given measurements.
 
     Returns (instrument type, serial number, roles) sorted by type and serial; roles are the
-    file roles it was used for ('source', 'receiver', 'tapping', 'background', 'rt')."""
+    file roles it was used for ('source', 'receiver', 'tapping', 'level', 'background', 'rt')."""
     found: dict[tuple[str, int], set] = {}
     for e in evaluated:
         if e.result is None or not e.result.info:
@@ -316,16 +405,22 @@ def equipment_used(evaluated) -> list[tuple[str, int, tuple[str, ...]]]:
             for i in infos:
                 if i.instrument and i.serial is not None:
                     found.setdefault((i.instrument, i.serial), set()).add(role)
-    order = {"source": 0, "receiver": 1, "tapping": 2, "background": 3, "rt": 4}
+    order = {"source": 0, "receiver": 1, "tapping": 2, "level": 3, "background": 4, "rt": 5}
     return [(t, s, tuple(sorted(r, key=order.get))) for (t, s), r in sorted(found.items())]
 
 
+def evaluate_situation(project: Project, situation, name: str = "") -> Evaluated:
+    """One measurement with the rooms and background of the project (e.g. while it is being
+    edited, before it is part of the project)."""
+    evaluate = {"airborne": _evaluate_airborne, "impact": _evaluate_impact,
+                "installation": _evaluate_installation}
+    return evaluate[situation.kind](project, situation, name or situation.base_name)
+
+
 def evaluate_project(project: Project) -> list[Evaluated]:
-    """Evaluate all airborne measurements, then all impact measurements (entry order)."""
-    names = project.situation_names()
-    n = len(project.airborne)
-    return ([_evaluate_airborne(project, s, names[i]) for i, s in enumerate(project.airborne)] +
-            [_evaluate_impact(project, s, names[n + i]) for i, s in enumerate(project.impact)])
+    """Evaluate all measurements in the order of Project.all_situations()."""
+    return [evaluate_situation(project, s, name)
+            for s, name in zip(project.all_situations(), project.situation_names())]
 
 
 def airborne_details_files(project: Project, s: AirborneSituation) -> dict:
@@ -384,7 +479,23 @@ def project_to_dict(project: Project, base: Path) -> dict:
                     "comment": s.comment, "requirement": s.requirement,
                     "tapping_files": _rel(s.tapping_files, base)}
                    for s in project.impact],
+        # added later within schema 2: older versions of the program ignore it
+        **({"installation": [{"receiver_room": s.receiver_room, "source_room": s.source_room,
+                              "comment": s.comment, "requirement": s.requirement,
+                              "quantity": s.quantity, "method": s.method,
+                              "recordings": _recordings_to_list(s.recordings, base)}
+                             for s in project.installation]} if project.installation else {}),
     }
+
+
+def _recordings_to_list(recordings, base: Path) -> list[dict]:
+    return [{"file": _rel([r.path], base)[0], "start_s": r.start, "end_s": r.end}
+            for r in recordings]
+
+
+def _recordings_from_list(items, base: Path) -> list[Recording]:
+    return [Recording(Path(_abs([x["file"]], base)[0]), int(x.get("start_s") or 0),
+                      None if x.get("end_s") is None else int(x["end_s"])) for x in items]
 
 
 def _legacy_comment(name: str) -> str:
@@ -421,7 +532,13 @@ def project_from_dict(d: dict, base: Path) -> Project:
                   for s in d.get("airborne", [])],
         impact=[ImpactSituation(s["receiver_room"], _abs(s.get("tapping_files", []), base),
                                 s.get("tapping_room", ""), comment(s), s.get("requirement"))
-                for s in d.get("impact", [])])
+                for s in d.get("impact", [])],
+        installation=[InstallationSituation(
+            s["receiver_room"], _recordings_from_list(s.get("recordings", []), base),
+            s.get("source_room", ""), s.get("comment", ""), s.get("requirement"),
+            s.get("quantity") if s.get("quantity") in INSTALLATION_QUANTITIES else "laeq",
+            s.get("method") if s.get("method") in ("integrated", "positions") else "integrated")
+            for s in d.get("installation", [])])
     rep = d.get("report", {})
     project.report = ReportInfo(rep.get("client", ""), rep.get("location", ""),
                                 rep.get("author", ""), rep.get("remarks", ""),

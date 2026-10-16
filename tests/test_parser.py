@@ -1,5 +1,5 @@
 """Checks the parser against values read from SvanPC++ ("Total results", LZeq SR,
-1/3 octave 0.8 Hz ... 20 kHz, integrated over 10 s) for samples/L1.SVL."""
+1/3 octave 0.8 Hz ... 20 kHz, integrated over 10 s) for samples/luchtgeluid_bron_L1.SVL."""
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +7,7 @@ import pytest
 
 from svl.parser import read_svl, N_BANDS, ISO_SLICE, ISO_BANDS
 
-SAMPLE = Path(__file__).parent.parent / "samples" / "L1.SVL"
+SAMPLE = Path(__file__).parent.parent / "samples" / "luchtgeluid_bron_L1.SVL"
 pytestmark = pytest.mark.skipif(not SAMPLE.exists(), reason="sample file missing")
 
 SVANPC_LZEQ_10S = np.array([float(x) for x in """

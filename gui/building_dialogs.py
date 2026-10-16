@@ -6,8 +6,9 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from calc.building import (AIRBORNE_BASES, IMPACT_BASES, AirborneSituation, ImpactSituation,
-                           Photo, Project, ReportInfo, Room, situation_name)
+from calc.building import (AIRBORNE_BASES, IMPACT_BASES, INSTALLATION_QUANTITIES,
+                           AirborneSituation, ImpactSituation, Photo, Project, ReportInfo, Room,
+                           situation_name)
 
 from export.report_options import GROUPS, TOGGLES, ReportOptions
 
@@ -215,17 +216,24 @@ class RoomCombo(QtWidgets.QWidget):
 
 
 class RequirementSpin(QtWidgets.QWidget):
-    """'DnT,w >= [ 54 ] dB' - 0 means: no requirement."""
+    """'DnT,w >= [ 54 ] dB' - 0 means: no requirement.
 
-    def __init__(self, project: Project, kind: str, value: int | None = None):
+    Installation noise: the quantity is chosen per measurement ('laeq' / 'lafmax', None = both
+    when several measurements get the same requirement); set_quantity() updates the label."""
+
+    def __init__(self, project: Project, kind: str, value: int | None = None,
+                 quantity: str | None = None):
         super().__init__()
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         if kind == "airborne":
             text, sym = AIRBORNE_BASES[project.airborne_basis], "\u2265"
-        else:
+        elif kind == "impact":
             text, sym = IMPACT_BASES[project.impact_basis], "\u2264"
-        lay.addWidget(QtWidgets.QLabel(f"{text} {sym}"))
+        else:
+            text, sym = self.quantity_text(quantity), "\u2264"
+        self.label = QtWidgets.QLabel(f"{text} {sym}")
+        lay.addWidget(self.label)
         self.spin = QtWidgets.QSpinBox()
         self.spin.setRange(0, 120)
         self.spin.setSuffix(" dB")
@@ -238,11 +246,20 @@ class RequirementSpin(QtWidgets.QWidget):
     def value(self) -> int | None:
         return self.spin.value() or None
 
+    @staticmethod
+    def quantity_text(quantity: str | None) -> str:
+        return INSTALLATION_QUANTITIES[quantity] if quantity else \
+            " / ".join(INSTALLATION_QUANTITIES.values())
+
+    def set_quantity(self, quantity: str):
+        self.label.setText(f"{self.quantity_text(quantity)} \u2264")
+
 
 class RequirementsDialog(QtWidgets.QDialog):
     """Set the requirement of several measurements at once."""
 
-    def __init__(self, project: Project, n_airborne: int, n_impact: int, parent=None):
+    def __init__(self, project: Project, n_airborne: int, n_impact: int, n_installation: int = 0,
+                 parent=None):
         super().__init__(parent)
         self.setWindowTitle("Set requirement")
         self.setMinimumWidth(460)
@@ -250,7 +267,8 @@ class RequirementsDialog(QtWidgets.QDialog):
         lay.addWidget(QtWidgets.QLabel("Give the selected measurements the same requirement "
                                        "(0 = remove the requirement)."))
         self.rows = {}
-        for kind, n in (("airborne", n_airborne), ("impact", n_impact)):
+        for kind, n in (("airborne", n_airborne), ("impact", n_impact),
+                        ("installation", n_installation)):
             if not n:
                 continue
             row = QtWidgets.QHBoxLayout()

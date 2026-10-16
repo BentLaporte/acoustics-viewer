@@ -158,14 +158,16 @@ def format_building_text(project, evs) -> str:
     out = [f"Building: {project.name}   (reverberation time {project.rt_kind.upper()}, "
            f"airborne {AIRBORNE_BASES[project.airborne_basis]}, "
            f"impact {IMPACT_BASES[project.impact_basis]})", ""]
-    rows = [("kind", "measurement", "value", "C / C_I", "Ctr", "requirement", "check")]
+    rows = [("kind", "measurement", "value", "C / C_I / quantity", "Ctr", "requirement", "check")]
     for e in evs:
         r = e.result
         value = "-" if e.value is None else f"{e.value}"
         if e.kind == "airborne":
             c, ctr = (_signed(r.c), _signed(r.ctr)) if r and e.rating else ("-", "-")
-        else:
+        elif e.kind == "impact":
             c, ctr = (_signed(r.ci), "") if r and e.rating else ("-", "")
+        else:                                       # installation noise: a single value
+            c, ctr = e.basis_label, ""
         req = "" if e.requirement is None else f"{'>=' if e.kind == 'airborne' else '<='} {e.requirement}"
         chk = e.check
         check = "ERROR: " + (e.error or "") if not e.ok else (
@@ -189,18 +191,20 @@ def format_building_csv(project, evs) -> str:
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(["kind", "name", "source_or_tapping_room", "receiver_room", "comment",
                 "single_number_db", "C_or_CI", "Ctr", "requirement_db", "check", "margin_db",
-                "error"])
+                "error", "quantity"])
     for e in evs:
         r = e.result
         ok = r is not None and e.rating is not None
-        c = (r.c if e.kind == "airborne" else r.ci) if ok else ""
+        c = {"airborne": "c", "impact": "ci"}.get(e.kind)
+        c = getattr(r, c) if ok and c else ""
         ctr = r.ctr if (ok and e.kind == "airborne") else ""
         chk = e.check
         w.writerow([e.kind, e.name, e.source_room, e.receiver_room, e.comment,
                     "" if e.value is None else e.value, c, ctr,
                     "" if e.requirement is None else e.requirement,
                     "" if chk.status == "none" else chk.status,
-                    "" if chk.margin is None else chk.margin, e.error or ""])
+                    "" if chk.margin is None else chk.margin, e.error or "",
+                    {"airborne": "DnT,w", "impact": "L'nT,w"}.get(e.kind) or e.basis_label])
     return buf.getvalue().rstrip("\n")
 
 

@@ -67,7 +67,7 @@ expected value from the header and verifies it on the data (977D records start w
 - Buffer header: tag 0x120F at 0x5C8 followed by mode, step, buffer size,
   number of records.
 
-## Spectrum files (L1, A_L2, B_L2, C_L20): 45 bands, 1 record per second
+## Spectrum files (L1, luchtgeluid_bron_L2, luchtgeluid_ontvangst_L2, ontvangstruimte_BG_L20): 45 bands, 1 record per second
 Record of 157 words starting at 0x5EC: 1 flag word, 12 unidentified values,
 then 3 x (45 band levels + 3 broadband values A, C, Z).
 - The 3rd spectrum of each second is LZeq(1 s), verified (energy average over
@@ -79,7 +79,7 @@ then 3 x (45 band levels + 3 broadband values A, C, Z).
 - Whole-file LZeq spectrum stored at word 2452 (45 bands + LAeq, LCeq, LZeq),
   preceded by the words 12875, 257.
 
-## Reverberation time file (L11 / B_L11, 977C_RT): 31 bands, 20 ms logger
+## Reverberation time file (L11 / ontvangstruimte_RT_L11, 977C_RT_L34): 31 bands, 20 ms logger
 The buffer starts with 4 words before the first record. Records of 35 words (flag, 31 bands
 20 Hz-20 kHz, 3 broadband A, C, Z). On the 977D the records follow each other (the first one
 at tag + 0x2C); on the 977C each record is 37 words: one word in front (0xC625 = -14811 in the

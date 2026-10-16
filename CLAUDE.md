@@ -48,30 +48,37 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
 
 ## Sample files (not in the repo, never commit)
 
-Real `.SVL` files live in `samples/` (git-ignored). Tests that need missing files skip. Names the
-tests expect: `A_L1`, `A_L2`, `B_L2`, `B_L4`, `C_L20`, `B_L11`, `B_L15`, `977C_example`,
-`977C_RT`, plus `L1.SVL`. All of them are present on this laptop (Windows). SvanPC++ reference
-values are hard-coded in the tests, so no CSV files are needed.
+Real `.SVL` files live in `samples/` (git-ignored); `samples/README.md` lists them. Names are
+`<type>_<role>_L<number>`: type = luchtgeluid, contactgeluid, installatiegeluid, ontvangstruimte
+(shared by airborne and impact), parser or 977C; role = bron, ontvangst, BG (background), RT
+(reverberation); L<number> = the original file number of the instrument. Tests that need missing
+files skip. All of them are present on this laptop (Windows). SvanPC++ reference values are
+hard-coded in the tests, so no CSV files are needed.
 
-## Status (15 Oct 2026)
+## Status (16 Oct 2026)
 
 All six roadmap steps exist: band spectra, rating curve with deviations, impact + C_I, averaging
 over several files, whole-building comparison, Dutch PDF report with switches, command line.
-Development moved from Cowork (Linux) to Claude Code on Windows; tests must pass on both, so
-compare paths as `Path` objects, not strings. Last test run (Windows, `.venv` Python 3.13):
-211 passed, 1 skipped (no sample band close to the background).
+Installation noise (branch `installation-noise`) is in the calculation, CLI, building project,
+viewer (dialog with level history: drag the time window; third overview section, hidden when
+empty) and report (section, page per measurement, switch `integrated_method_note`). The report
+title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
+Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
+Last test run (Windows, `.venv` Python 3.13): 262 passed, 1 skipped.
+
+Parked by Bent: transient installations (no sample yet; LAFmax only checked on a stationary
+file) and the engineering method ISO 16032.
 
 Open items, in rough order:
 
-0. Installation noise (branch `installation-noise`): calculation and CLI done. Next: viewer
-   page (time-window selection on the level history, note when T20 replaced T30), building
-   comparison with requirements, Dutch report. The report needs a switch (`Toggle`) to show
-   or hide the 'integrated method' remark. No transient sample yet (toilet flush, lift).
+0. Bent to review the installation noise Dutch wording (`report_text.py`: METHOD_TEXT,
+   NOTE_INSTALLATION, note translations) and the viewer dialog.
 1. Excel export of the building comparison (reuse the switches registry).
 2. End-to-end hand check of one real airborne and one real impact measurement against an
    independent calculation (Bent will do this later).
 3. Viewer UX review with screenshots (samples are now available); the export dialog is about
-   800 px tall, check it on the smallest laptop screen.
+   800 px tall (one more switch now), check it on the smallest laptop screen. Screenshots:
+   offscreen Qt needs `QT_QPA_FONTDIR=C:/Windows/Fonts`, otherwise all text is boxes.
 4. Bent to review the Dutch terms in the report; band headers "1,25k" / "3,15k" wrap onto two
    lines in the per-band table.
 5. Optional: language switch (Dutch / English) for the report.

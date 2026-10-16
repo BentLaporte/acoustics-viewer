@@ -98,6 +98,29 @@ def curves_chart(items, ylabel: str, title: str, width_in: float = 6.85,
     return _png(fig)
 
 
+def history_chart(laeq, lafmax, start: int, end: int, title: str, width_in: float = 6.85,
+                  height_in: float = 1.9) -> bytes:
+    """Level history of one installation noise file: LAeq and LAFmax per second (steps), the
+    time window used shaded. end is exclusive (whole seconds)."""
+    laeq, lafmax = np.asarray(laeq, float), np.asarray(lafmax, float)
+    x = np.arange(len(laeq) + 1)                           # second k spans k ... k + 1
+    fig = Figure(figsize=(width_in, height_in), layout="constrained")
+    ax = fig.add_subplot()
+    ax.axvspan(start, end, color="#1f618d", alpha=0.13, lw=0, label="Gebruikt tijdvenster")
+    ax.stairs(laeq, x, baseline=None, color="#1f618d", lw=1.5, label="LAeq per seconde")
+    ax.stairs(lafmax, x, baseline=None, color="#e67e22", lw=1.0, label="LAFmax per seconde")
+    ax.set_xlim(0, len(laeq))
+    ax.set_xlabel("Tijd [s]", fontsize=7.5)
+    ax.set_ylabel("Niveau [dB(A)]", fontsize=7.5)
+    ax.yaxis.set_major_formatter(COMMA_AXIS)
+    ax.tick_params(labelsize=7)
+    ax.grid(True, alpha=0.3, lw=0.5)
+    ax.set_title(title, fontsize=8, loc="left")
+    fig.legend(*ax.get_legend_handles_labels(), loc="outside right center", fontsize=6.5,
+               frameon=False)
+    return _png(fig)
+
+
 def rating_chart(ev, width_in: float = 6.85, height_in: float = 2.9) -> bytes:
     """Measured curve, shifted reference curve and unfavourable deviations of one measurement."""
     above = ev.kind == "impact"

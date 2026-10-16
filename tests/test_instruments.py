@@ -8,8 +8,8 @@ from svl.parser import (BLOCK_WORDS, Device, SvlError, find_buffer, read_device,
 
 
 
-D_FILES = ["A_L2.SVL", "B_L2.SVL", "B_L4.SVL", "C_L20.SVL"]
-C_FILE = "977C_example.SVL"
+D_FILES = ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL"]
+C_FILE = "977C_L1.SVL"
 SAMPLES = Path(__file__).parent.parent / "samples"
 needs_c = pytest.mark.skipif(not (SAMPLES / C_FILE).exists(), reason="977C sample missing")
 needs_d = pytest.mark.skipif(not all((SAMPLES / n).exists() for n in D_FILES),
@@ -23,8 +23,8 @@ def test_device_labels():
 
 
 @needs_d
-@pytest.mark.parametrize("name, serial", [("A_L2.SVL", 99942), ("B_L2.SVL", 156226),
-                                          ("B_L4.SVL", 156226), ("C_L20.SVL", 156226)])
+@pytest.mark.parametrize("name, serial", [("luchtgeluid_bron_L2.SVL", 99942), ("luchtgeluid_ontvangst_L2.SVL", 156226),
+                                          ("contactgeluid_L4.SVL", 156226), ("ontvangstruimte_BG_L20.SVL", 156226)])
 def test_977d_files(name, serial):
     f = read_svl(SAMPLES / name)
     assert (f.device.label, f.device.class_code, f.device.firmware) == ("SV 977D", 31, 218)
@@ -121,10 +121,10 @@ def test_damaged_framing_is_refused(tmp_path):
         read_svl(broken)
 
 
-@pytest.mark.skipif(not (SAMPLES / "977C_RT.SVL").exists(), reason="977C RT sample missing")
+@pytest.mark.skipif(not (SAMPLES / "977C_RT_L34.SVL").exists(), reason="977C RT sample missing")
 def test_damaged_framing_is_refused_in_rt_files(tmp_path):
     from svl.rt import read_rt
-    raw = bytearray((SAMPLES / "977C_RT.SVL").read_bytes())
+    raw = bytearray((SAMPLES / "977C_RT_L34.SVL").read_bytes())
     buf = find_buffer(bytes(raw))
     at = buf.data_start + 8 + 2 * buf.last_header_word * 100 + 2 * (buf.last_header_word - 1)   # suffix of record 100
     raw[at:at + 2] = b"\x01\x00"

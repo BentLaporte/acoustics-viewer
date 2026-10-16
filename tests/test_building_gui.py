@@ -12,7 +12,7 @@ from calc.building import (AirborneSituation, ImpactSituation, Project, Room)  #
 from helpers import make_variant  # noqa: E402
 
 S = Path(__file__).parent.parent / "samples"
-NEED = ["A_L2.SVL", "B_L2.SVL", "B_L4.SVL", "C_L20.SVL", "B_L11.SVL"]
+NEED = ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL"]
 pytestmark = pytest.mark.skipif(not all((S / n).exists() for n in NEED),
                                 reason="sample files missing")
 
@@ -30,14 +30,14 @@ def settings(tmp_path):
 
 
 def project(tmp_path) -> Project:
-    quiet = make_variant(S / "B_L2.SVL", tmp_path / "C_recv.SVL", -3.0)
+    quiet = make_variant(S / "luchtgeluid_ontvangst_L2.SVL", tmp_path / "C_recv.SVL", -3.0)
     f = lambda n: str(S / n)                                          # noqa: E731
-    p = Project(name="Demo", background_files=[f("C_L20.SVL")])
-    p.rooms = [Room("A"), Room("B", [f("B_L11.SVL")]), Room("C", [f("B_L11.SVL")])]
-    p.airborne = [AirborneSituation("A", "B", [f("A_L2.SVL")], [f("B_L2.SVL")]),
-                  AirborneSituation("A", "C", [f("A_L2.SVL")], [str(quiet)], "louder speaker"),
-                  AirborneSituation("A", "B", [f("A_L2.SVL")], [f("nope.SVL")], "broken")]
-    p.impact = [ImpactSituation("B", [f("B_L4.SVL")], "A", "carpet")]
+    p = Project(name="Demo", background_files=[f("ontvangstruimte_BG_L20.SVL")])
+    p.rooms = [Room("A"), Room("B", [f("ontvangstruimte_RT_L11.SVL")]), Room("C", [f("ontvangstruimte_RT_L11.SVL")])]
+    p.airborne = [AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")]),
+                  AirborneSituation("A", "C", [f("luchtgeluid_bron_L2.SVL")], [str(quiet)], "louder speaker"),
+                  AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("nope.SVL")], "broken")]
+    p.impact = [ImpactSituation("B", [f("contactgeluid_L4.SVL")], "A", "carpet")]
     return p
 
 
@@ -204,7 +204,7 @@ def test_rt_kind_and_background_change_recalculate(app, settings, tmp_path):
     assert page.air_table.item(0, 2).text() == "-"
     assert "reverberation time missing" in page.air_table.item(0, 7).text()
     page.rt_kind.setCurrentIndex(page.rt_kind.findData("t30"))
-    loud = make_variant(S / "C_L20.SVL", tmp_path / "loud.SVL", 40.0)
+    loud = make_variant(S / "ontvangstruimte_BG_L20.SVL", tmp_path / "loud.SVL", 40.0)
     page.bg_row.set_paths([str(loud)])                                               # emits changed
     assert page.project.background_files == [str(loud)]
     assert "within 6 dB" in page.air_table.item(0, 7).text()
@@ -259,8 +259,8 @@ def test_dialogs(app, settings, tmp_path):
     assert room.room().name == "B" and room.room().rt_files == p.rooms[1].rt_files
     assert room.room().background_files == []
     room.own_bg.setChecked(True)
-    room.bg.set_paths([str(S / "C_L20.SVL")])
-    assert room.room().background_files == [str(S / "C_L20.SVL")]
+    room.bg.set_paths([str(S / "ontvangstruimte_BG_L20.SVL")])
+    assert room.room().background_files == [str(S / "ontvangstruimte_BG_L20.SVL")]
     dlg = SituationDialog("airborne", p, settings, [], p.airborne[1])
     s = dlg.situation()
     assert (s.source_room, s.receiver_room, s.comment) == ("A", "C", "louder speaker")
@@ -346,11 +346,11 @@ def test_add_and_edit_measurement_dirty_only_when_changed(app, settings, tmp_pat
     page.dirty = False
     FakeSituationDialog.new_room = None
     f = lambda n: str(S / n)                                                     # noqa: E731
-    FakeSituationDialog.answer = AirborneSituation("B", "C", [f("A_L2.SVL")], [f("B_L2.SVL")])
+    FakeSituationDialog.answer = AirborneSituation("B", "C", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")])
     page.add_measurement("airborne")
     assert page.dirty and page.project.airborne[-1].base_name == "airborne B to C"
     assert page.air_table.rowCount() == 4
-    FakeSituationDialog.answer = ImpactSituation("C", [f("B_L4.SVL")], comment="tile")
+    FakeSituationDialog.answer = ImpactSituation("C", [f("contactgeluid_L4.SVL")], comment="tile")
     page.meas_table.selectRow(page.meas_table.rowCount() - 1)
     page.edit_measurement()                                                      # replaces the impact row
     assert page.project.impact[0].comment == "tile" and page.imp_table.item(0, 2).text() == "44"
@@ -418,7 +418,7 @@ def test_bulk_set_requirement(app, settings, tmp_path, monkeypatch):
         seen = None
         values_ = {}
 
-        def __init__(self, project, n_airborne, n_impact, parent=None):
+        def __init__(self, project, n_airborne, n_impact, n_installation=0, parent=None):
             FakeDialog.seen = (n_airborne, n_impact)
 
         def exec(self):

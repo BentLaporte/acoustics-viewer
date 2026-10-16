@@ -27,10 +27,12 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import (BaseDocTemplate, Frame, Image, KeepTogether, PageBreak,
                                 PageTemplate, Paragraph, Spacer, Table, TableStyle)
 
-from calc.building import (AIRBORNE_BASES, IMPACT_BASES, Evaluated, Project, equipment_used,
-                           natural_key)
+from calc.building import (AIRBORNE_BASES, IMPACT_BASES, INSTALLATION_QUANTITIES,
+                           INTEGRATED_NOTE, Evaluated, Project, equipment_used, natural_key)
 from calc.colors import style_of
+from calc.installation import OCTAVE_THIRDS
 from calc.iso717 import BANDS
+from svl.parser import SvlError, read_svl
 
 from . import charts
 from . import report_text as T
@@ -71,7 +73,9 @@ def _register_fonts() -> None:
 
 
 # ----------------------------------------------------------------------------- text helpers
-_SUBSCRIPTS = [("DnT,w", "D<sub>nT,w</sub>"), ("L'nT,w", "L'<sub>nT,w</sub>"),
+_SUBSCRIPTS = [("LAFmax,nT", "L<sub>AFmax,nT</sub>"), ("LAeq,nT", "L<sub>Aeq,nT</sub>"),
+               ("LAFmax", "L<sub>AFmax</sub>"), ("LAeq", "L<sub>Aeq</sub>"),
+               ("DnT,w", "D<sub>nT,w</sub>"), ("L'nT,w", "L'<sub>nT,w</sub>"),
                ("DnT", "D<sub>nT</sub>"), ("L'nT", "L'<sub>nT</sub>"),
                ("C_I", "C<sub>I</sub>"), ("Ctr", "C<sub>tr</sub>")]
 
@@ -172,6 +176,14 @@ def shown_terms(options: ReportOptions, project: Project, evs: list, kind: str) 
     return terms
 
 
+def notes_shown(ev: Evaluated, options: ReportOptions) -> list[str]:
+    """The remarks of a measurement as the report shows them (English, see T.note_text): the
+    'integrated method' remark of installation noise has its own switch."""
+    if options.integrated_method_note:
+        return list(ev.notes)
+    return [n for n in ev.notes if n != INTEGRATED_NOTE]
+
+
 # ----------------------------------------------------------------------------- page furniture
 def _canvas_maker(left: str, right: str):
     class NumberedCanvas(canvas.Canvas):
@@ -230,19 +242,28 @@ def _overview_table(evs: list, kind: str, project: Project, options: ReportOptio
     """The results table of one kind. Columns follow the options: the adaptation terms that are
     switched off and the requirement and check columns (requirements off) are left out."""
     airborne = kind == "airborne"
-    basis = (AIRBORNE_BASES[project.airborne_basis] if airborne
-             else IMPACT_BASES[project.impact_basis])
-    terms = shown_terms(options, project, evs, kind)
+    installation = kind == "installation"
+    terms = shown_terms(options, project, evs, kind) if not installation else set()
     # (key, header, width in mm; None = shares what is left, name 55 % and remarks 45 %)
-    cols = [("name", T.COL_MEASUREMENT if airborne else T.COL_MEASUREMENT_IMPACT, None),
-            ("value", "DnT,w" if airborne else "L'nT,w", 13)]
+    if installation:            # one value; LAeq,nT or LAFmax,nT is chosen per measurement
+        cols = [("name", T.COL_MEASUREMENT_IMPACT, None), ("value", T.COL_VALUE, 14),
+                ("quantity", T.COL_QUANTITY, 19)]
+    else:
+        cols = [("name", T.COL_MEASUREMENT if airborne else T.COL_MEASUREMENT_IMPACT, None),
+                ("value", "DnT,w" if airborne else "L'nT,w", 13)]
     if airborne:
         cols += [("c", "C", 8)] if "c" in terms else []
         cols += [("ctr", "Ctr", 9)] if "ctr" in terms else []
     elif "ci" in terms:
         cols += [("ci", "C_I", 8)]
     if options.requirements:
-        cols += [("req", T.COL_REQUIREMENT.format(basis=basis), 26 if airborne else 24),
+        if installation:
+            req_head = T.COL_REQUIREMENT_PLAIN
+        else:
+            basis = (AIRBORNE_BASES[project.airborne_basis] if airborne
+                     else IMPACT_BASES[project.impact_basis])
+            req_head = T.COL_REQUIREMENT.format(basis=basis)
+        cols += [("req", req_head, 18 if installation else 26 if airborne else 24),
                  ("check", T.COL_CHECK, 30)]
     cols += [("remarks", T.COL_REMARKS, None)]
     left = FRAME_W / mm - sum(w for *_, w in cols if w)
@@ -259,10 +280,11 @@ def _overview_table(evs: list, kind: str, project: Project, options: ReportOptio
         for key, term in (("c", "c"), ("ctr", "ctr"), ("ci", "ci")):
             value = getattr(r, term, None) if r else None
             cells[key] = Paragraph(minus(value) if value is not None else "-", st["cellc"])
+        cells["quantity"] = Paragraph(mk(ev.basis_label), st["cellc"])
         cells["req"] = Paragraph(_requirement_text(ev), st["cellc"])
         cells["check"], bg = _check_cell(ev, st)
-        cells["remarks"] = Paragraph(txt("; ".join(T.note_text(n) for n in ev.notes)),
-                                     st["small"])
+        cells["remarks"] = Paragraph(
+            txt("; ".join(T.note_text(n) for n in notes_shown(ev, options))), st["small"])
         rows.append([cells[key] for key, _, _ in cols])
         if options.requirements and bg:
             j = [key for key, _, _ in cols].index("check")
@@ -292,13 +314,19 @@ def _title_block(project: Project, evs: list, date: dt.date, options: ReportOpti
     if info.author:
         facts.append((T.FACT_AUTHOR, txt(info.author)))
     facts.append((T.FACT_DATE, _date_text(date)))
-    facts.append((T.FACT_RT, T.RT_TEXT[project.rt_kind]))
     kinds = {e.kind for e in evs}
+    # airborne and impact use the project's choice; installation noise always T30 (else T20)
+    rt = [T.RT_TEXT[project.rt_kind]] if kinds & {"airborne", "impact"} or not kinds else []
+    rt += [T.RT_INSTALLATION] if "installation" in kinds else []
+    facts.append((T.FACT_RT, "; ".join(rt)))
     basis = []
     if "airborne" in kinds:
         basis.append(f"{T.KIND_WORD['airborne']}: {AIRBORNE_BASES[project.airborne_basis]}")
     if "impact" in kinds:
         basis.append(f"{T.KIND_WORD['impact']}: {IMPACT_BASES[project.impact_basis]}")
+    quantities = sorted({e.basis_label for e in evs if e.kind == "installation"})
+    if quantities:
+        basis.append(f"{T.KIND_WORD['installation']}: {' / '.join(quantities)}")
     if options.requirements and any(e.requirement is not None for e in evs) and basis:
         facts.append((T.FACT_BASIS, mk("; ".join(basis))))
     rows = [[Paragraph(f"<b>{k}</b>", st["body"]), Paragraph(v, st["body"])] for k, v in facts]
@@ -317,10 +345,8 @@ def _title_block(project: Project, evs: list, date: dt.date, options: ReportOpti
 
 
 def _summary(evs: list, options: ReportOptions, st: dict) -> list:
-    n_air = sum(1 for e in evs if e.kind == "airborne")
-    n_imp = len(evs) - n_air
-    parts = ([f"{n_air} {T.KIND_WORD['airborne']}"] if n_air else []) + \
-        ([f"{n_imp} {T.KIND_WORD['impact']}"] if n_imp else [])
+    counts = {k: sum(1 for e in evs if e.kind == k) for k in T.KIND_WORD}
+    parts = [f"{n} {T.KIND_WORD[k]}" for k, n in counts.items() if n]
     text = f"<b>{T.count_metingen(len(evs))}</b> ({', '.join(parts)}). "
     if options.requirements:
         c = _counts(evs)
@@ -370,12 +396,23 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
                         "(lager is beter). " +
                         ("C_I is de spectrumaanpassingsterm (100 tot 2500 Hz). " if ci else "") +
                         "De beoordeling gebeurt volgens ISO 717-2."))
+    installation = [e for e in evs if e.kind == "installation"]
+    if installation:
+        items.append(mk(T.NOTE_INSTALLATION))
+        if options.integrated_method_note and any(e.ok and e.result.method == "integrated"
+                                                  for e in installation):
+            items.append(T.NOTE_INTEGRATED)
+    evs = [e for e in evs if e.kind != "installation"]      # the notes below: insulation only
     limit = [e for e in evs if e.ok and e.result.n_limit]
     if options.requirements:
         if any(e.requirement is not None for e in evs):
             items.append("Luchtgeluidresultaten moeten minstens gelijk zijn aan de eis en "
                          "contactgeluidresultaten hoogstens gelijk aan de eis. De marge is het "
                          "verschil in dB (positief = beter dan de eis).")
+        if any(e.requirement is not None for e in installation):
+            items.append(T.NOTE_INSTALL_REQUIREMENT)
+        if any(e.check.status == "inconclusive" for e in installation):
+            items.append(T.NOTE_INSTALL_INCONCLUSIVE)
         if any(e.check.status == "inconclusive" for e in evs):
             items.append("Niet conclusief: een of meer tersbanden liggen dicht bij het "
                          "achtergrondgeluiddrukniveau (minder dan 6 dB erboven). Zo'n band wordt "
@@ -412,17 +449,24 @@ def _bar_charts(evs: list, colors: dict, project: Project, kind: str, options: R
                 st: dict) -> list:
     if not evs:
         return []
-    basis = (AIRBORNE_BASES[project.airborne_basis] if kind == "airborne"
-             else IMPACT_BASES[project.impact_basis])
-    quantity = "DnT,w" if kind == "airborne" else "L'nT,w"
-    # with requirements the bars show the value the requirement is checked against
-    shown = basis if options.requirements else quantity
+    if kind == "installation":                  # the quantity is per measurement: in the label
+        shown = " / ".join(sorted({e.basis_label for e in evs}))
+    else:
+        basis = (AIRBORNE_BASES[project.airborne_basis] if kind == "airborne"
+                 else IMPACT_BASES[project.impact_basis])
+        quantity = "DnT,w" if kind == "airborne" else "L'nT,w"
+        # with requirements the bars show the value the requirement is checked against
+        shown = basis if options.requirements else quantity
     title = f"{T.KIND_TITLE[kind]} \u2013 {shown}"
+
+    def label(e):
+        return f"{e.basis_label}: {e.label}" if kind == "installation" else e.label
+
     story = []
     for start in range(0, len(evs), BARS_PER_CHART):
         chunk = evs[start:start + BARS_PER_CHART]
         png = charts.bars_chart(
-            [(e.label, colors[id(e)], e.assessed if options.requirements else e.value,
+            [(label(e), colors[id(e)], e.assessed if options.requirements else e.value,
               e.requirement if options.requirements else None) for e in chunk],
             T.KIND_AXIS[kind], title, show_requirement=options.requirements)
         story.append(KeepTogether([_image(png)]))
@@ -486,7 +530,7 @@ def _rooms_used(evs: list) -> list:
 
 
 def _room_roles(evs: list, room: str) -> str:
-    src = sum(1 for e in evs if e.kind == "airborne" and e.source_room == room)
+    src = sum(1 for e in evs if e.kind in ("airborne", "installation") and e.source_room == room)
     tap = sum(1 for e in evs if e.kind == "impact" and e.source_room == room)
     rec = sum(1 for e in evs if e.receiver_room == room)
     parts = []
@@ -540,7 +584,7 @@ def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) ->
     """Small main photo of the source / tapping room and the receiving room above the chart."""
     wanted = [(T.ROOM_LABEL["receiver"], ev.receiver_room)]
     if ev.source_room:
-        wanted.insert(0, (T.ROOM_LABEL["source" if ev.kind == "airborne" else "tapping"],
+        wanted.insert(0, (T.ROOM_LABEL["tapping" if ev.kind == "impact" else "source"],
                           ev.source_room))
     cells, any_photo = [], False
     for label, name in wanted:
@@ -581,8 +625,12 @@ def _file_text(ev: Evaluated, role: str, dates: bool = True) -> str:
 
 
 def _file_lines(ev: Evaluated, st: dict, dates: bool = True) -> list:
+    if ev.kind == "installation":         # level files first, then background and reverberation
+        roles = [k for k in ("level", "background", "rt") if k in ev.result.info]
+    else:
+        roles = list(ev.result.names)
     rows = [[Paragraph(f"<b>{ROLE_TEXT[k]}</b>", st["small"]),
-             Paragraph(_file_text(ev, k, dates), st["small"])] for k in ev.result.names]
+             Paragraph(_file_text(ev, k, dates), st["small"])] for k in roles]
     t = Table(rows, colWidths=[62 * mm, FRAME_W - 62 * mm])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
@@ -606,6 +654,106 @@ def _equipment_section(project: Project, evs: list, st: dict) -> list:
     if other:
         story += [Spacer(1, 2 * mm)] + [Paragraph(f"\u2022 {txt(line)}", st["small"]) for line in other]
     return [KeepTogether(story)]                     # heading, table and list stay on one page
+
+
+def _result_box(ev: Evaluated, color: str, left: list, options: ReportOptions, st: dict) -> Table:
+    """The result at the top of a measurement page: value (left), requirement and check (right,
+    only with requirements), a bar in the colour of the measurement."""
+    chk = ev.check
+    show_check = options.requirements and chk.status != "none"
+    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+             ("BOX", (0, 0), (-1, -1), 0.6, rl.HexColor("#b2babb")),
+             ("LINEBEFORE", (0, 0), (0, -1), 4, rl.HexColor(color)),
+             ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]
+    if show_check:
+        cell, _ = _check_cell(ev, st)
+        right = [Paragraph(mk(T.DETAIL_REQUIREMENT.format(basis=ev.basis_label,
+                                                           requirement=_requirement_text(ev))),
+                           st["cellbox"]), cell]            # space: the subscripts need it
+        box = Table([[left, right]], colWidths=[FRAME_W * 0.66, FRAME_W * 0.34])
+        if CHECK_BG[chk.status]:
+            style.append(("BACKGROUND", (1, 0), (1, 0), rl.HexColor(CHECK_BG[chk.status])))
+    else:
+        box = Table([[left]], colWidths=[FRAME_W])
+    box.setStyle(TableStyle(style))
+    return box
+
+
+def _remarks(ev: Evaluated, options: ReportOptions, st: dict) -> list:
+    notes = notes_shown(ev, options)
+    if not notes:
+        return []
+    return [Paragraph(T.COL_REMARKS, st["h2"])] + \
+        [Paragraph(f"\u2022 {txt(T.note_text(n))}", st["small"]) for n in notes]
+
+
+def _installation_page(ev: Evaluated, color: str, project: Project, options: ReportOptions,
+                       st: dict, cache: PhotoCache | None = None) -> list:
+    """One installation noise measurement: result, level history with the time window of each
+    file, the values per file, the reverberation time behind k, the files and the remarks."""
+    r = ev.result
+    name = T.display_name(ev)
+    story = [PageBreak(), Paragraph(txt(name[0].upper() + name[1:]), st["h1"])]
+    level = T.INSTALL_LEVEL[r.quantity]
+    detail = T.DETAIL_INSTALL.format(level=level, measured=num(r.level), k=num(r.k, 2),
+                                     quantity=r.symbol, lnt=num(r.lnt))
+    left = [Paragraph(mk(f"{r.symbol} = {r.value} dB"), st["big"]),
+            Paragraph(mk(detail), st["small"])]
+    if r.method != "integrated" or options.integrated_method_note:      # the switch covers it
+        left.append(Paragraph(mk(T.METHOD_TEXT[r.method]), st["small"]))
+    if r.background is not None:
+        left.append(Paragraph(mk(T.DETAIL_INSTALL_BG.format(bg=num(r.background))), st["small"]))
+    story.append(_result_box(ev, color, left, options, st))
+    strip = _room_strip(ev, project, cache, st) if cache is not None else []
+    story += strip or [Spacer(1, 3 * mm)]
+
+    # level history of every file, the window shaded
+    for rec in r.recordings:
+        try:
+            f = read_svl(rec.path)
+        except (OSError, SvlError):                   # was readable when it was evaluated
+            continue
+        end = f.duration_s if rec.end is None else rec.end
+        png = charts.history_chart(f.laeq_per_second(), f.lafmax_per_second(), rec.start, end,
+                                   T.HISTORY_TITLE.format(file=rec.path.name),
+                                   height_in=1.6 if len(r.recordings) > 1 else 1.9)
+        story += [_image(png), Spacer(1, 1 * mm)]
+
+    # values per file
+    head = [h.format(level=level) for h in T.INSTALL_HEAD]
+    has_bg = r.margins is not None
+    widths = [70, 26, 18, 28, 32] if has_bg else [88, 30, 22, 34]
+    rows = [[Paragraph(head_text(h), st["colhead"]) for h in head[:len(widths)]]]
+    extra = []
+    for i, (rec, seconds, value) in enumerate(zip(r.recordings, r.durations, r.levels), start=1):
+        last = rec.start + seconds                    # end of the window = file end if open
+        window = T.install_window(rec.start, rec.end, last)
+        cells = [Paragraph(txt(rec.path.name), st["cell"]), Paragraph(window, st["cellc"]),
+                 Paragraph(str(seconds), st["cellc"]), Paragraph(num(value), st["cellc"])]
+        if has_bg:
+            margin = r.margins[i - 1]
+            cells.append(Paragraph(num(margin), st["cellc"]))
+            if margin < 6:
+                extra.append(("BACKGROUND", (4, i), (4, i), rl.HexColor(LIMIT_BG)))
+        rows.append(cells)
+    story += [Spacer(1, 1.5 * mm), _table(rows, widths, st, extra=extra)]
+
+    # reverberation time behind k
+    rows = [[Paragraph(head_text(h), st["colhead"]) for h in T.INSTALL_RT_HEAD]]
+    for octave, thirds in OCTAVE_THIRDS.items():
+        values = []
+        for hz in thirds:
+            t20 = " (T20)" if hz in r.t20_used else ""
+            values.append(f"{num(r.t_thirds[hz], 3)}{t20}")
+        rows.append([Paragraph(str(octave), st["cellc"]),
+                     Paragraph(", ".join(str(h) for h in thirds), st["cellc"]),
+                     Paragraph(", ".join(values), st["cellc"]),
+                     Paragraph(f"<b>{num(r.t_octaves[octave], 3)}</b>", st["cellc"])])
+    story += [Spacer(1, 3 * mm), _table(rows, [26, 40, 70, 38], st),
+              Spacer(1, 1.5 * mm), Paragraph(mk(T.DETAIL_INSTALL_RT), st["small"])]
+    story += _file_lines(ev, st, options.file_dates)
+    story += _remarks(ev, options, st)
+    return story
 
 
 def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOptions,
@@ -634,24 +782,7 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     left = [Paragraph(big, st["big"])]
     if detail:
         left.append(Paragraph(detail, st["small"]))
-    chk = ev.check
-    show_check = options.requirements and chk.status != "none"
-    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-             ("BOX", (0, 0), (-1, -1), 0.6, rl.HexColor("#b2babb")),
-             ("LINEBEFORE", (0, 0), (0, -1), 4, rl.HexColor(color)),
-             ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]
-    if show_check:
-        cell, _ = _check_cell(ev, st)
-        right = [Paragraph(mk(T.DETAIL_REQUIREMENT.format(basis=ev.basis_label,
-                                                           requirement=_requirement_text(ev))),
-                           st["cellbox"]), cell]            # space: the subscripts need it
-        box = Table([[left, right]], colWidths=[FRAME_W * 0.66, FRAME_W * 0.34])
-        if CHECK_BG[chk.status]:
-            style.append(("BACKGROUND", (1, 0), (1, 0), rl.HexColor(CHECK_BG[chk.status])))
-    else:
-        box = Table([[left]], colWidths=[FRAME_W])
-    box.setStyle(TableStyle(style))
-    story.append(box)
+    story.append(_result_box(ev, color, left, options, st))
     strip = _room_strip(ev, project, cache, st) if cache is not None else []
     story += strip or [Spacer(1, 3 * mm)]
     story += [_image(charts.rating_chart(ev, height_in=2.4 if strip else 2.9)), Spacer(1, 2 * mm)]
@@ -689,9 +820,7 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
         small.append(T.DETAIL_LIMIT)
     story += [Spacer(1, 1.5 * mm)] + [Paragraph(t, st["small"]) for t in small]
     story += _file_lines(ev, st, options.file_dates)
-    if ev.notes:
-        story += [Paragraph(T.COL_REMARKS, st["h2"])] + \
-            [Paragraph(f"\u2022 {txt(T.note_text(n))}", st["small"]) for n in ev.notes]
+    story += _remarks(ev, options, st)
     return story
 
 
@@ -715,6 +844,7 @@ def build_pdf_report(project: Project, evaluated: list, path, options: ReportOpt
     evs = [e for e in evaluated if (e.kind, e.name) not in hidden]
     air = [e for e in evs if e.kind == "airborne"]
     imp = [e for e in evs if e.kind == "impact"]
+    ins = [e for e in evs if e.kind == "installation"]
 
     story = _title_block(project, evs, date, options, st)
     if options.summary:
@@ -725,6 +855,9 @@ def build_pdf_report(project: Project, evaluated: list, path, options: ReportOpt
     if imp:
         story += [Paragraph(T.SECTION_IMPACT, st["h1"]),
                   _overview_table(imp, "impact", project, options, st)]
+    if ins:
+        story += [Paragraph(T.SECTION_INSTALLATION, st["h1"]),
+                  _overview_table(ins, "installation", project, options, st)]
     if options.notes:
         story += _notes(evs, project, options, st)
     if options.equipment:
@@ -737,19 +870,24 @@ def build_pdf_report(project: Project, evaluated: list, path, options: ReportOpt
         story += [PageBreak(), Paragraph(T.SECTION_COMPARISON, st["h1"])]
         story += _bar_charts(air, colors, project, "airborne", options, st)
         story += _bar_charts(imp, colors, project, "impact", options, st)
+        story += _bar_charts(ins, colors, project, "installation", options, st)
         story += _curves_section(air, colors, dashed, "airborne", options, st)
         story += _curves_section(imp, colors, dashed, "impact", options, st)
         if options.per_measurement_pages:
+            photos = cache if options.room_photos else None
             for e in evs:
-                if e.ok:
+                if not e.ok:
+                    continue
+                if e.kind == "installation":
+                    story += _installation_page(e, colors[id(e)], project, options, st, photos)
+                else:
                     terms = shown_terms(options, project, evs, e.kind)
-                    story += _detail_page(e, colors[id(e)], project, options, terms, st,
-                                          cache if options.room_photos else None)
+                    story += _detail_page(e, colors[id(e)], project, options, terms, st, photos)
 
     path = Path(path)
     doc = BaseDocTemplate(str(path), pagesize=PAGE,
-                          title=f"{project.name} - geluidsisolatiemetingen",
-                          author=project.report.author or "", subject="Geluidsisolatie")
+                          title=T.DOC_TITLE.format(name=project.name),
+                          author=project.report.author or "", subject=T.DOC_SUBJECT)
     # no frame padding: tables, pictures and text all start exactly at the margin
     frame = Frame(MARGIN_X, MARGIN_BOTTOM, FRAME_W, PAGE[1] - MARGIN_TOP - MARGIN_BOTTOM,
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id="main")

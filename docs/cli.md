@@ -147,7 +147,12 @@ energy-averaged over the files.
 | `airborne_basis`, `impact_basis` | the quantities requirements are checked against |
 | `summary` | counts: `complies`, `fails`, `inconclusive`, `no_result`, `none` (no requirement), `errors` |
 | `equipment[]` | `{instrument, serial, used_for[]}` found in the files of all measurements |
-| `measurements[]` | measurement objects as above (airborne first, then impact) |
+| `measurements[]` | measurement objects as above (airborne first, then impact, then installation noise). An installation measurement is an *installation object* with, in addition, `name`, `source_room` (where the installation is, may be empty), `receiver_room` and `comment`; its `remarks` are the short ones of the viewer |
+
+The building CSV has one row per measurement; the last column, `quantity`, says what
+`single_number_db` is (`DnT,w`, `L'nT,w`, `LAeq,nT` or `LAFmax,nT`). In the project file installation
+measurements are stored under `"installation"`, each level file with its time window
+(`{"file", "start_s", "end_s"}`, `end_s` null = to the end of the file).
 
 ### `info` output (JSON)
 

@@ -37,7 +37,9 @@ def date_text(d: dt.date) -> str:
 
 
 # ----------------------------------------------------------------------------- fixed texts
-TITLE = "Geluidsisolatiemetingen"
+TITLE = "Geluidsmetingen"
+DOC_TITLE = "{name} - geluidsmetingen"          # PDF metadata
+DOC_SUBJECT = "Geluidsmetingen"
 EMPTY = "Er zijn nog geen metingen in dit gebouw."
 PAGE_OF = "Pagina {page} van {total}"
 
@@ -47,15 +49,19 @@ FACT_RT = "Gebruikte nagalmtijd"
 FACT_BASIS = "Eisen getoetst aan"
 REMARKS = "Opmerkingen"
 SECTION_AIRBORNE, SECTION_IMPACT = "Luchtgeluidisolatie", "Contactgeluiddrukniveau"
+SECTION_INSTALLATION = "Installatiegeluid"
 SECTION_COMPARISON = "Vergelijking"
 SECTION_EQUIPMENT = "Apparatuur"
 SECTION_NOTES = "Toelichting"
 SECTION_ROOMS = "Ruimten"
 ROOMS_INTRO = "Foto's van de ruimten waarop de metingen betrekking hebben."
 
-KIND_WORD = {"airborne": "luchtgeluid", "impact": "contactgeluid"}
-KIND_TITLE = {"airborne": "Luchtgeluidisolatie", "impact": "Contactgeluiddrukniveau"}
-KIND_AXIS = {"airborne": "hoger is beter", "impact": "lager is beter"}
+KIND_WORD = {"airborne": "luchtgeluid", "impact": "contactgeluid",
+             "installation": "installatiegeluid"}
+KIND_TITLE = {"airborne": "Luchtgeluidisolatie", "impact": "Contactgeluiddrukniveau",
+              "installation": "Installatiegeluid"}
+KIND_AXIS = {"airborne": "hoger is beter", "impact": "lager is beter",
+             "installation": "lager is beter"}
 CURVES_HEAD = {"airborne": "Luchtgeluid: DnT per band", "impact": "Contactgeluid: L'nT per band"}
 CURVES_TITLE = {"airborne": "Gestandaardiseerd geluidsniveauverschil DnT",
                 "impact": "Gestandaardiseerd contactgeluidsdrukniveau L'nT"}
@@ -64,6 +70,9 @@ BAND_TABLE_CAPTION = ("{name} per tertsband [dB]; banden dicht bij het achtergro
 COL_MEASUREMENT = "Meting"
 COL_MEASUREMENT_IMPACT = "Meting (bronruimte \u2192 ontvangstruimte)"
 COL_REQUIREMENT = "Eis ({basis})"
+COL_REQUIREMENT_PLAIN = "Eis"
+COL_VALUE = "Waarde [dB]"
+COL_QUANTITY = "Grootheid"
 COL_CHECK = "Toetsing"
 COL_REMARKS = "Opmerkingen"
 
@@ -73,9 +82,46 @@ RT_TEXT = {"t30": "T30 (RT30)", "t20": "T20 (RT20)", "edt": "EDT"}
 
 ROLE_TEXT = {"source": "Geluiddrukniveaus bronruimte", "receiver": "Geluiddrukniveaus ontvangstruimte",
              "tapping": "Contactgeluiddrukniveaus ontvangstruimte", "background": "Achtergrondgeluiddrukniveau",
-             "rt": "Nagalmtijd"}
+             "rt": "Nagalmtijd", "level": "Geluiddrukniveaus installatiegeluid"}
 ROOM_LABEL = {"source": "Bronruimte", "tapping": "Bronruimte",
               "receiver": "Ontvangstruimte"}
+
+# installation noise (ISO 10052 as used by NBN S 01-400-1)
+RT_INSTALLATION = "T30, T20 waar T30 ontbreekt (installatiegeluid)"
+METHOD_TEXT = {"integrated": "Ge\u00efntegreerde methode: microfoon tijdens de meting door de "
+                             "ruimte bewogen",
+               "positions": "E\u00e9n meting nabij de hoek en twee metingen in het galmveld"}
+INSTALL_LEVEL = {"laeq": "LAeq", "lafmax": "LAFmax"}
+INSTALL_HEAD = ["Meetbestand", "Tijdvenster [s]", "Duur [s]", "{level}\n[dB]",
+                "Boven achtergrond\n[dB]"]
+INSTALL_WHOLE = "volledig ({end})"
+INSTALL_RT_HEAD = ["Octaafband [Hz]", "Tertsbanden [Hz]", "T per tertsband [s]", "T octaaf [s]"]
+DETAIL_INSTALL = ("Gemeten {level} = {measured} dB (energetisch gemiddelde van de metingen); "
+                  "nagalmindex k = {k} dB; {quantity} = {measured} \u2212 {k} = {lnt} dB, "
+                  "afgerond op 1 dB.")
+DETAIL_INSTALL_BG = "Achtergrondgeluiddrukniveau LAeq = {bg} dB (alleen gecontroleerd, niet afgetrokken)."
+DETAIL_INSTALL_RT = ("k = 10 lg((T500 + T1000 + T2000) / (3 \u00d7 0,5 s)); T per octaaf is het "
+                     "rekenkundig gemiddelde van de drie tertsbanden (T30, of T20 waar T30 "
+                     "ontbreekt).")
+HISTORY_TITLE = "{file}: niveauverloop, het gebruikte tijdvenster is gearceerd"
+NOTE_INSTALLATION = (
+    "LAeq,nT en LAFmax,nT zijn het gestandaardiseerde equivalente en maximale installatiegeluid "
+    "(lager is beter): het A-gewogen geluiddrukniveau, energetisch gemiddeld over de metingen, "
+    "verminderd met de nagalmindex k = 10 lg((T500 + T1000 + T2000) / (3 \u00d7 0,5 s)), "
+    "afgerond op 1 dB (formules van ISO 10052, zoals gebruikt in NBN S 01-400-1). LAFmax is "
+    "het hoogste niveau met tijdweging Fast binnen het tijdvenster. Er wordt geen correctie "
+    "voor het achtergrondgeluiddrukniveau toegepast; ligt het niveau minder dan 6 dB erboven, "
+    "dan is de waarde overschat.")
+NOTE_INTEGRATED = (
+    "Ge\u00efntegreerde methode: in plaats van \u00e9\u00e9n meting nabij de hoek en twee "
+    "metingen in het galmveld (ISO 10052, 6.3.4) is de microfoon tijdens de meting door de "
+    "ruimte bewogen.")
+NOTE_INSTALL_REQUIREMENT = ("Installatiegeluidresultaten moeten hoogstens gelijk zijn aan de "
+                            "eis. De marge is het verschil in dB (positief = beter dan de eis).")
+NOTE_INSTALL_INCONCLUSIVE = (
+    "Niet conclusief (installatiegeluid): het geluiddrukniveau lag minder dan 6 dB boven het "
+    "achtergrondgeluiddrukniveau. Het resultaat is daardoor mogelijk te hoog; of aan de eis "
+    "voldaan is, kan niet met zekerheid worden vastgesteld.")
 ROOM_ROLE = {"receiver": "ontvangstruimte", "source": "bronruimte", "tapping": "bronruimte"}
 
 EQUIP_HEAD = ("Instrument", "Serienummer", "Gebruikt voor")
@@ -99,6 +145,13 @@ IMPACT_HEAD = ["Band\n[Hz]", "Li\ngemeten", "Lb\n[dB]", "Li\ngecorr.", "Correc-\
                "T [s]", "L'nT\n[dB]", "Ref.-\ncurve", "Ongunst.\nafw."]
 
 
+def install_window(start: int, end, duration: int) -> str:
+    """'5-35' or 'volledig (0-10)': the time window of one installation noise file in seconds."""
+    if start == 0 and end is None:
+        return INSTALL_WHOLE.format(end=f"0-{duration}")
+    return f"{start}-{duration if end is None else end}"
+
+
 def summary_counts(n_air: int, n_imp: int) -> str:
     parts = ([f"{n_air} luchtgeluid"] if n_air else []) + ([f"{n_imp} contactgeluid"]
                                                            if n_imp else [])
@@ -118,8 +171,11 @@ def display_name(ev) -> str:
 
     Built from the parts (not by replacing words in the English name), so a room or comment
     that happens to contain ' to ' is left alone."""
-    core = f"{KIND_WORD[ev.kind]} {ev.source_room} naar {ev.receiver_room}" if ev.source_room \
-        else f"{KIND_WORD[ev.kind]} naar {ev.receiver_room}"
+    if ev.source_room:
+        core = f"{KIND_WORD[ev.kind]} {ev.source_room} naar {ev.receiver_room}"
+    else:                              # installation noise without source room: '... in <room>'
+        core = f"{KIND_WORD[ev.kind]} {'in' if ev.kind == 'installation' else 'naar'} " \
+               f"{ev.receiver_room}"
     if ev.comment.strip():
         core += f" ({ev.comment.strip()})"
     m = _SUFFIX.search(ev.name)
@@ -150,6 +206,16 @@ _NOTE_PATTERNS = [
      r"geen nagalmtijdbestanden voor ruimte '\1'"),
     (re.compile(r"^no background files \(building or room\)$"),
      "geen bestanden met het achtergrondgeluiddrukniveau (gebouw of ruimte)"),
+    # installation noise
+    (re.compile(r"^integrated method \(moving microphone\)$"),
+     "ge\u00efntegreerde methode (bewegende microfoon)"),
+    (re.compile(r"^T20 used at (.*) Hz \(no T30\)$"), r"T20 gebruikt bij \1 Hz (geen T30)"),
+    (re.compile(r"^background not checked$"), "achtergrondgeluiddrukniveau niet gecontroleerd"),
+    (re.compile(r"^within 6 dB of background \(value overestimated\)$"),
+     "minder dan 6 dB boven het achtergrondgeluiddrukniveau (waarde overschat)"),
+    (re.compile(r"^room '(.*)' does not exist$"), r"ruimte '\1' bestaat niet"),
+    (re.compile(r"^no installation noise level files$"),
+     "geen bestanden met geluiddrukniveaus van het installatiegeluid"),
 ]
 
 

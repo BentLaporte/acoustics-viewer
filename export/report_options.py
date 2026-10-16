@@ -42,6 +42,11 @@ TOGGLES: tuple[Toggle, ...] = (
     Toggle("term_ci", "Adaptation term C_I (impact)", "Results",
            tip="Always shown while requirements are on and a requirement is checked against "
                "L'nT,w + C_I."),
+    Toggle("integrated_method_note", "Remark 'integrated method' (installation noise)",
+           "Results",
+           tip="Installation noise measured with a moving microphone instead of one position "
+               "close to the corner and two in the reverberant field (ISO 10052, 6.3.4). When "
+               "off, the remark is left out of the tables, the measurement pages and the notes."),
     Toggle("summary", "Summary sentence on the first page", "Sections"),
     Toggle("remarks", "Remarks (free text on the first page)", "Sections"),
     Toggle("equipment", "Equipment list", "Sections"),
@@ -60,6 +65,7 @@ class ReportOptions:
     term_c: bool = True
     term_ctr: bool = True
     term_ci: bool = True
+    integrated_method_note: bool = True    # installation noise: the 'integrated method' remark
     summary: bool = True
     remarks: bool = True
     equipment: bool = True

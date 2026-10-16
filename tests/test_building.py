@@ -11,7 +11,7 @@ from calc.building import (AirborneSituation, ImpactSituation, Project, Room, ev
 from helpers import make_variant
 
 S = Path(__file__).parent.parent / "samples"
-NEED = ["A_L2.SVL", "B_L2.SVL", "B_L4.SVL", "C_L20.SVL", "B_L11.SVL"]
+NEED = ["luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL"]
 needs_samples = pytest.mark.skipif(not all((S / n).exists() for n in NEED),
                                    reason="sample files missing")
 
@@ -21,10 +21,10 @@ def f(name):
 
 
 def basic_project() -> Project:
-    p = Project(name="Test", background_files=[f("C_L20.SVL")])
-    p.rooms = [Room("A"), Room("B", rt_files=[f("B_L11.SVL")])]
-    p.airborne = [AirborneSituation("A", "B", [f("A_L2.SVL")], [f("B_L2.SVL")])]
-    p.impact = [ImpactSituation("B", [f("B_L4.SVL")], tapping_room="A", comment="carpet")]
+    p = Project(name="Test", background_files=[f("ontvangstruimte_BG_L20.SVL")])
+    p.rooms = [Room("A"), Room("B", rt_files=[f("ontvangstruimte_RT_L11.SVL")])]
+    p.airborne = [AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")])]
+    p.impact = [ImpactSituation("B", [f("contactgeluid_L4.SVL")], tapping_room="A", comment="carpet")]
     return p
 
 
@@ -76,7 +76,7 @@ def test_evaluate_matches_single_measurements():
 
 @needs_samples
 def test_room_background_overrides_building_background(tmp_path):
-    loud = make_variant(S / "C_L20.SVL", tmp_path / "loud_bg.SVL", 30.0)
+    loud = make_variant(S / "ontvangstruimte_BG_L20.SVL", tmp_path / "loud_bg.SVL", 30.0)
     p = basic_project()
     plain = evaluate_project(p)[0]
     p.rooms[1].background_files = [str(loud)]                # room B gets its own background
@@ -88,10 +88,10 @@ def test_room_background_overrides_building_background(tmp_path):
 
 @needs_samples
 def test_two_receiver_rooms_are_independent(tmp_path):
-    quieter = make_variant(S / "B_L2.SVL", tmp_path / "C_recv.SVL", -3.0)   # 3 dB lower level
+    quieter = make_variant(S / "luchtgeluid_ontvangst_L2.SVL", tmp_path / "C_recv.SVL", -3.0)   # 3 dB lower level
     p = basic_project()
-    p.rooms.append(Room("C", rt_files=[f("B_L11.SVL")]))
-    p.airborne.append(AirborneSituation("A", "C", [f("A_L2.SVL")], [str(quieter)]))
+    p.rooms.append(Room("C", rt_files=[f("ontvangstruimte_RT_L11.SVL")]))
+    p.airborne.append(AirborneSituation("A", "C", [f("luchtgeluid_bron_L2.SVL")], [str(quieter)]))
     ab, ac = evaluate_project(p)[:2]
     assert ab.name == "airborne A to B" and ac.name == "airborne A to C"
     # 3 dB lower receiver level -> DnT exactly 3 dB higher in every band (no correction needed)
@@ -104,12 +104,12 @@ def test_errors_are_reported_per_measurement():
     p = basic_project()
     p.rooms.append(Room("NoRT"))
     p.airborne += [
-        AirborneSituation("A", "NoRT", [f("A_L2.SVL")], [f("B_L2.SVL")]),
-        AirborneSituation("A", "Ghost", [f("A_L2.SVL")], [f("B_L2.SVL")]),
-        AirborneSituation("A", "B", [f("A_L2.SVL")], [str(S / "does_not_exist.SVL")],
+        AirborneSituation("A", "NoRT", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")]),
+        AirborneSituation("A", "Ghost", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")]),
+        AirborneSituation("A", "B", [f("luchtgeluid_bron_L2.SVL")], [str(S / "does_not_exist.SVL")],
                           "missing file"),
-        AirborneSituation("A", "B", [], [f("B_L2.SVL")], "no source files")]
-    p.impact.append(ImpactSituation("B", [f("A_L2.SVL"), str(S / "README.md")], "A", "bad"))
+        AirborneSituation("A", "B", [], [f("luchtgeluid_ontvangst_L2.SVL")], "no source files")]
+    p.impact.append(ImpactSituation("B", [f("luchtgeluid_bron_L2.SVL"), str(S / "README.md")], "A", "bad"))
     ev = {e.name: e for e in evaluate_project(p)}
     assert ev["airborne A to B"].ok and ev["impact A to B (carpet)"].ok      # untouched
     assert "reverberation time files for room 'NoRT'" in ev["airborne A to NoRT"].error
@@ -132,7 +132,7 @@ def test_rt_kind_and_missing_rt_band_note():
 @needs_samples
 def test_averaging_note():
     p = basic_project()
-    p.airborne[0].receiver_files = [f("B_L2.SVL"), f("B_L2.SVL")]
+    p.airborne[0].receiver_files = [f("luchtgeluid_ontvangst_L2.SVL"), f("luchtgeluid_ontvangst_L2.SVL")]
     assert "averaged over several files" in evaluate_project(p)[0].notes
 
 
@@ -144,22 +144,22 @@ def test_save_and_load_roundtrip_with_relative_paths(tmp_path):
     data.mkdir(parents=True)
     for n in NEED:
         shutil.copy(S / n, data / n)
-    p = Project(name="Job", background_files=[str(data / "C_L20.SVL")], rt_kind="t20")
-    p.rooms = [Room("B", [str(data / "B_L11.SVL")]), Room("A")]              # deliberately unsorted
-    p.airborne = [AirborneSituation("A", "B", [str(data / "A_L2.SVL")],
-                                    [str(data / "B_L2.SVL")], "wall")]
-    p.impact = [ImpactSituation("B", [str(data / "B_L4.SVL")], "A", "tile")]
+    p = Project(name="Job", background_files=[str(data / "ontvangstruimte_BG_L20.SVL")], rt_kind="t20")
+    p.rooms = [Room("B", [str(data / "ontvangstruimte_RT_L11.SVL")]), Room("A")]              # deliberately unsorted
+    p.airborne = [AirborneSituation("A", "B", [str(data / "luchtgeluid_bron_L2.SVL")],
+                                    [str(data / "luchtgeluid_ontvangst_L2.SVL")], "wall")]
+    p.impact = [ImpactSituation("B", [str(data / "contactgeluid_L4.SVL")], "A", "tile")]
     path = proj_dir / "job.json"
     save_project(p, path)
     raw = json.loads(path.read_text())
     assert raw["schema"] == 2 and "name" not in raw["airborne"][0]
     assert raw["airborne"][0]["comment"] == "wall" and raw["impact"][0]["comment"] == "tile"
-    assert raw["background_files"] == ["data/C_L20.SVL"]               # stored relative, portable
+    assert raw["background_files"] == ["data/ontvangstruimte_BG_L20.SVL"]               # stored relative, portable
     assert [r["name"] for r in raw["rooms"]] == ["A", "B"]             # saved in sorted order
-    assert raw["rooms"][1]["rt_files"] == ["data/B_L11.SVL"]
+    assert raw["rooms"][1]["rt_files"] == ["data/ontvangstruimte_RT_L11.SVL"]
     q = load_project(path)
     assert (q.name, q.rt_kind, [r.name for r in q.rooms]) == ("Job", "t20", ["A", "B"])
-    assert Path(q.rooms[1].rt_files[0]) == (data / "B_L11.SVL").resolve()
+    assert Path(q.rooms[1].rt_files[0]) == (data / "ontvangstruimte_RT_L11.SVL").resolve()
     assert (q.airborne[0].comment, q.impact[0].comment, q.impact[0].tapping_room) == \
         ("wall", "tile", "A")
     before = [(e.name, e.value, e.error) for e in evaluate_project(q)]
@@ -249,8 +249,8 @@ def test_no_result_when_rating_impossible():
 @needs_samples
 def test_limit_bands_make_a_failure_inconclusive_only_when_they_matter(tmp_path):
     band_3150 = 36                                              # position in the 45-band table
-    loud_3150 = make_variant(S / "C_L20.SVL", tmp_path / "bg_3150.SVL", 60.0, only_bands=[band_3150])
-    loud_all = make_variant(S / "C_L20.SVL", tmp_path / "bg_all.SVL", 40.0)
+    loud_3150 = make_variant(S / "ontvangstruimte_BG_L20.SVL", tmp_path / "bg_3150.SVL", 60.0, only_bands=[band_3150])
+    loud_all = make_variant(S / "ontvangstruimte_BG_L20.SVL", tmp_path / "bg_all.SVL", 40.0)
 
     # airborne: 3150 Hz is far above the curve, so a limit value there cannot change the rating
     p = basic_project()
@@ -347,7 +347,7 @@ def test_projects_without_photos_still_load(tmp_path):
 
 
 # ------------------------------------------------------------------ two instrument types
-C_FILE = S / "977C_example.SVL"
+C_FILE = S / "977C_L1.SVL"
 needs_c = pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and C_FILE.exists()),
                              reason="sample files missing")
 
@@ -356,13 +356,13 @@ needs_c = pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and C_FILE
 def test_source_level_from_a_977c_and_receiver_from_a_977d():
     from calc.measurements import load_levels
     p = basic_project()
-    p.airborne.append(AirborneSituation("A", "B", [str(C_FILE)], [f("B_L2.SVL")], "977C source"))
+    p.airborne.append(AirborneSituation("A", "B", [str(C_FILE)], [f("luchtgeluid_ontvangst_L2.SVL")], "977C source"))
     d_source, c_source = evaluate_project(p)[:2]
     assert c_source.ok and c_source.error is None
     assert np.allclose(c_source.result.l1, load_levels(C_FILE))        # the 977C level is used
     assert np.allclose(c_source.result.l2, d_source.result.l2)         # same receiver
     # the two sources differ in level, so DnT differs by exactly that difference per band
-    diff = load_levels(f("A_L2.SVL")) - load_levels(C_FILE)
+    diff = load_levels(f("luchtgeluid_bron_L2.SVL")) - load_levels(C_FILE)
     assert np.allclose(d_source.curve - c_source.curve, diff, atol=1e-9)
 
 
@@ -382,10 +382,10 @@ def test_a_level_file_used_as_reverberation_file_gives_a_clear_row_message():
     p.rooms[1].rt_files = [str(C_FILE)]                                # a level file as RT file
     ev = evaluate_project(p)
     for e in ev:
-        assert not e.ok and "977C_example.SVL" in e.error and "reverberation time" in e.error
+        assert not e.ok and "977C_L1.SVL" in e.error and "reverberation time" in e.error
 
 
-RT_C = S / "977C_RT.SVL"
+RT_C = S / "977C_RT_L34.SVL"
 
 
 @pytest.mark.skipif(not (all((S / n).exists() for n in NEED) and RT_C.exists()),
@@ -394,8 +394,8 @@ def test_building_with_a_977c_reverberation_file():
     from svl.rt import read_rt
     p = basic_project()
     p.rooms.append(Room("C", rt_files=[str(RT_C)]))
-    p.airborne.append(AirborneSituation("A", "C", [f("A_L2.SVL")], [f("B_L2.SVL")], "977C decay"))
-    p.impact.append(ImpactSituation("C", [f("B_L4.SVL")], "A", "977C decay"))
+    p.airborne.append(AirborneSituation("A", "C", [f("luchtgeluid_bron_L2.SVL")], [f("luchtgeluid_ontvangst_L2.SVL")], "977C decay"))
+    p.impact.append(ImpactSituation("C", [f("contactgeluid_L4.SVL")], "A", "977C decay"))
     ev = {e.name: e for e in evaluate_project(p)}
     a, i = ev["airborne A to C (977C decay)"], ev["impact A to C (977C decay)"]
     assert a.ok and i.ok and a.error is None and i.error is None
@@ -413,9 +413,9 @@ def test_building_with_a_977c_reverberation_file():
                     reason="sample files missing")
 def test_decays_of_both_instruments_are_averaged():
     from calc.measurements import load_rt
-    d, _ = load_rt(f("B_L11.SVL"), "t30")
+    d, _ = load_rt(f("ontvangstruimte_RT_L11.SVL"), "t30")
     c, _ = load_rt(str(RT_C), "t30")
-    both, n = load_rt([f("B_L11.SVL"), str(RT_C)], "t30")
+    both, n = load_rt([f("ontvangstruimte_RT_L11.SVL"), str(RT_C)], "t30")
     assert (n == 2).all() and np.allclose(both, (d + c) / 2)           # arithmetic mean per band
 
 

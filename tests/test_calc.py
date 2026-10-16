@@ -98,7 +98,7 @@ from pathlib import Path as _P
 from calc.airborne import compute_airborne
 
 _S = _P(__file__).parent.parent / "samples"
-_need = [_S / n for n in ("A_L2.SVL", "B_L2.SVL", "C_L20.SVL", "B_L11.SVL")]
+_need = [_S / n for n in ("luchtgeluid_bron_L2.SVL", "luchtgeluid_ontvangst_L2.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL")]
 
 
 @pytest.mark.skipif(not all(p.exists() for p in _need), reason="sample files missing")
@@ -122,7 +122,7 @@ def test_rating_none_when_rt_band_missing():
 # --- calc.impact ----------------------------------------------------------------------
 from calc.impact import compute_impact
 
-_imp = [_S / n for n in ("B_L4.SVL", "C_L20.SVL", "B_L11.SVL")]
+_imp = [_S / n for n in ("contactgeluid_L4.SVL", "ontvangstruimte_BG_L20.SVL", "ontvangstruimte_RT_L11.SVL")]
 
 
 @pytest.mark.skipif(not all(p.exists() for p in _imp), reason="sample files missing")
@@ -182,12 +182,12 @@ def test_impact_ci_on_samples():
 
 @pytest.mark.skipif(not all(p.exists() for p in _need), reason="sample files missing")
 def test_averaging_levels_and_rt():
-    a, b = _S / "A_L2.SVL", _S / "B_L2.SVL"
+    a, b = _S / "luchtgeluid_bron_L2.SVL", _S / "luchtgeluid_ontvangst_L2.SVL"
     la, lb_ = load_levels(a), load_levels(b)
     avg = load_levels([a, b])
     assert np.allclose(avg, 10 * np.log10((10 ** (la / 10) + 10 ** (lb_ / 10)) / 2))
     assert np.allclose(load_levels([a, a, a]), la)                 # identical files change nothing
-    rt = _S / "B_L11.SVL"
+    rt = _S / "ontvangstruimte_RT_L11.SVL"
     t1, n1 = load_rt(rt, "t30")
     t2, n2 = load_rt([rt, rt], "t30")
     assert np.allclose(t1, t2) and (n1 == 1).all() and (n2 == 2).all()

@@ -1,4 +1,4 @@
-"""Checks svl.rt against the SvanPC++ table 'RT60 (SR)' for samples/B_L11.SVL.
+"""Checks svl.rt against the SvanPC++ table 'RT60 (SR)' for samples/ontvangstruimte_RT_L11.SVL.
 
 (The level history was also compared value-for-value with a SvanPC++ CSV export once,
 when the reader was written; that one-off check was retired together with the CSV.)"""
@@ -10,7 +10,7 @@ import pytest
 from svl.rt import read_rt
 
 SAMPLES = Path(__file__).parent.parent / "samples"
-SVL = SAMPLES / "B_L11.SVL"
+SVL = SAMPLES / "ontvangstruimte_RT_L11.SVL"
 pytestmark = pytest.mark.skipif(not SVL.exists(), reason="sample file missing")
 
 # Freq, EDT, RT20, RT30 as pasted from SvanPC++ (nan = ***)
@@ -82,7 +82,7 @@ def test_rt_file_reports_its_instrument():
 
 
 # ------------------------------------------------------------------ SV 977C reverberation file
-RT_C = SAMPLES / "977C_RT.SVL"
+RT_C = SAMPLES / "977C_RT_L34.SVL"
 needs_rt_c = pytest.mark.skipif(not RT_C.exists(), reason="977C reverberation sample missing")
 
 
@@ -120,7 +120,7 @@ def test_977c_rt_values_as_decoded_today():
 
 def test_level_files_are_not_accepted_as_reverberation_files():
     from svl.parser import SvlError
-    for name in ("A_L2.SVL", "977C_example.SVL"):
+    for name in ("luchtgeluid_bron_L2.SVL", "977C_L1.SVL"):
         if (SAMPLES / name).exists():
             with pytest.raises(SvlError, match=name):
                 read_rt(SAMPLES / name)

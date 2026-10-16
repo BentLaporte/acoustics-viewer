@@ -3,9 +3,9 @@
 Run from the project folder:
     python -m gui
     python -m gui --project my_building.json
-    python -m gui --source samples/A_L2.SVL --receiver samples/B_L2.SVL \
-                  --tapping samples/B_L4.SVL --background samples/C_L20.SVL \
-                  --rt samples/B_L11.SVL
+    python -m gui --source samples/luchtgeluid_bron_L2.SVL --receiver samples/luchtgeluid_ontvangst_L2.SVL \
+                  --tapping samples/contactgeluid_L4.SVL --background samples/ontvangstruimte_BG_L20.SVL \
+                  --rt samples/ontvangstruimte_RT_L11.SVL
 """
 from __future__ import annotations
 
