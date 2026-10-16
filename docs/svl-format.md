@@ -101,6 +101,12 @@ contents': LApeak/LAFmax/LAFmin/LAeq, LApeak/LASmax/LASmin/LAeq, LZpeak/LZFmax/L
 max and min are detector values that can lag at sudden changes (a quiet second after a loud one
 can show a high max).
 
+Used and verified: the LAFmax of profile 1 (installation noise). For a 977D file
+(installatiegeluid_L22, 10 s) the highest per-second max, the lowest per-second min and the
+highest peak of profile 1 reproduce SvanPC++ "Main results" P1 (A, Fast): Lmax 46.1, Lmin 43.1,
+Lpeak 60.1. The A total of the 1/3-octave Lmax spectra is *not* the LAFmax (47.1 dB there). The
+reader checks that profile 1 is A-weighted (its eq equals the LAeq); Fast is assumed.
+
 ## Not decoded
 Calibration data, other settings (other band counts, step times, profiles). A level file of a
 measurement that was stopped early (fewer records than the buffer holds) has not been seen; the

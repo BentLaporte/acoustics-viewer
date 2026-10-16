@@ -34,7 +34,8 @@ Content of a record, both types:
   * the 12 words after the flag are, for the three profiles of the instrument, [peak, max, min,
     eq] (header: "Logger contents": LApeak/LAFmax/LAFmin/LAeq, LApeak/LASmax/LASmin/LAeq,
     LZpeak/LZFmax/LZFmin/LZeq). The eq values equal LAeq and LZeq of the Leq spectrum; the peak is
-    the same in the two A-weighted profiles. Not used by the calculations.
+    the same in the two A-weighted profiles. The LAFmax of profile 1 is used for installation
+    noise (SvlFile.lafmax) and verified against SvanPC++; the other values are not used.
 
 Measurement date and time: see read_measurement_time (two-second resolution).
 
@@ -263,6 +264,7 @@ class Second:
 
 STORED_TOTAL_WORD = 2452       # word index of the stored whole-file LZeq spectrum
 STORED_TAG = (12875, 257)      # the two words in front of it
+PROFILE_TOLERANCE_DB = 0.05    # profile 1 eq vs LAeq of the same second (seen: up to 0.01 dB)
 
 
 @dataclass
@@ -290,8 +292,40 @@ class SvlFile:
 
     def laeq_total(self) -> float:
         """Broadband LAeq over the whole file."""
-        a = np.array([s.leq_broadband[0] for s in self.seconds])
+        return self.laeq()
+
+    def window(self, start: int = 0, end: int | None = None) -> list[Second]:
+        """The records of seconds start ... end (record k covers second k to k + 1, so end is
+        exclusive). Whole seconds only: the logger stores one record per second."""
+        end = self.duration_s if end is None else end
+        if not (isinstance(start, (int, np.integer)) and isinstance(end, (int, np.integer))):
+            raise ValueError("the time window is given in whole seconds")
+        if not 0 <= start < end <= self.duration_s:
+            raise ValueError(f"{self.name}: time window {start}-{end} s is outside the "
+                             f"measurement (0-{self.duration_s} s)")
+        return self.seconds[start:end]
+
+    def laeq(self, start: int = 0, end: int | None = None) -> float:
+        """Broadband LAeq over a time window (default: the whole file)."""
+        a = np.array([s.leq_broadband[0] for s in self.window(start, end)])
         return float(energy_mean(a))
+
+    def lafmax(self, start: int = 0, end: int | None = None) -> float:
+        """Broadband LAFmax over a time window (default: the whole file): the highest of the
+        per-second LAFmax values of profile 1.
+
+        Verified against SvanPC++ "Main results" (installatiegeluid_L22: 46.1 dB). Not the A total
+        of the 1/3-octave Lmax spectra, which gives a different, higher value (47.1 dB there).
+        Profile 1 must be set to A weighting, Fast on the instrument (its default). The A
+        weighting is checked on the data (its eq value equals the LAeq of every second); Fast
+        cannot be read from the file and is assumed."""
+        secs = self.window(start, end)
+        eq = np.array([s.profiles[0, 3] for s in secs])
+        laeq = np.array([s.leq_broadband[0] for s in secs])
+        if np.max(np.abs(eq - laeq)) > PROFILE_TOLERANCE_DB:
+            raise SvlError(f"{self.name}: profile 1 is not A-weighted (its Leq differs from "
+                           "the LAeq), so LAFmax cannot be read; set profile 1 to A, Fast")
+        return float(np.max([s.profiles[0, 1] for s in secs]))
 
 
 def energy_mean(levels, axis=0):
