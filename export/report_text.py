@@ -157,6 +157,17 @@ DETAIL_INSTALL_BG = "Achtergrondgeluiddrukniveau LAeq = {bg} dB (alleen gecontro
 DETAIL_INSTALL_RT = ("k = 10 lg((T500 + T1000 + T2000) / (3 \u00d7 0,5 s)); T per octaaf is het "
                      "rekenkundig gemiddelde van de drie tertsbanden (T30, of T20 waar T30 "
                      "ontbreekt).")
+DETAIL_INSTALL_OVER = ("Minder dan 6 dB boven het achtergrondgeluiddrukniveau: de waarde is "
+                      "overschat (ISO 10052, 6.2.1).")
+DETAIL_INSTALL_NO_BG = ("Achtergrondgeluiddrukniveau niet gemeten: niet gecontroleerd of de "
+                        "waarde overschat is.")
+# remarks per measurement switched off: the notes name what the standards require
+FALLBACK_LIMIT = ("Metingen met tertsbanden die slechts een grenswaarde zijn (6 dB of minder boven "
+                  "het achtergrondgeluiddrukniveau): {names}.")
+FALLBACK_OVER = ("Installatiegeluid minder dan 6 dB boven het achtergrondgeluiddrukniveau, waarde "
+                 "overschat: {names}.")
+FALLBACK_NO_BG = "Installatiegeluid zonder controle van het achtergrondgeluiddrukniveau: {names}."
+FALLBACK_ERROR = "Zonder resultaat: {items}."
 HISTORY_TITLE = "{file}: niveauverloop, het gebruikte tijdvenster is gearceerd"
 NOTE_INSTALLATION = (
     "LAeq,nT en LAFmax,nT zijn het gestandaardiseerde equivalente en maximale installatiegeluid "

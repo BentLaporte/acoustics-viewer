@@ -47,6 +47,12 @@ TOGGLES: tuple[Toggle, ...] = (
            tip="Installation noise measured with a moving microphone instead of one position "
                "close to the corner and two in the reverberant field (ISO 10052, 6.3.4). When "
                "off, the remark is left out of the tables, the measurement pages and the notes."),
+    Toggle("measurement_remarks", "Remarks per measurement (Opmerkingen)", "Results",
+           tip="The remarks column of the overview tables and the remarks on the measurement "
+               "pages (bands close to the background, averaged files, T20, ...). When off, what "
+               "the standards require stays in the report: limit values are marked in the band "
+               "tables; overestimated installation noise is stated on its page; when those pages "
+               "or tables are off too, the notes (Toelichting) name the measurements."),
     Toggle("uncertainty", "Measurement uncertainty (ISO 12999-1)", "Results",
            tip="Expanded uncertainty U of DnT,w / L'nT,w (situation B, k = 1) on the "
                "measurement pages and in the notes. Installation noise has none."),
@@ -69,6 +75,7 @@ class ReportOptions:
     term_ctr: bool = True
     term_ci: bool = True
     integrated_method_note: bool = True    # installation noise: the 'integrated method' remark
+    measurement_remarks: bool = True       # remarks column and per-page remarks
     uncertainty: bool = True               # ISO 12999-1 expanded uncertainty
     summary: bool = True
     remarks: bool = True

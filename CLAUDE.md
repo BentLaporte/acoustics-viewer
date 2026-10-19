@@ -51,6 +51,10 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
 * Measurement uncertainty ISO 12999-1:2020 (`calc/iso12999.py`): situation B, k = 1 (Bent's
   choice), U of the compared value, shown in the report (switch `uncertainty`), NOT used in the
   verdict (the NBN tolerance is the Belgian decision rule). None for installation noise.
+* Report switch `measurement_remarks` (remarks column + per-page remarks). Off keeps what the
+  standards require: limit values (ISO 16283 cl. 14) via the band tables, overestimated
+  installation noise (ISO 10052 6.2.1) in its result box, and when those pages/tables are off
+  too the notes name the measurements (`_remark_fallbacks` in `pdf_report.py`).
 * Dutch wording lives only in `export/report_text.py`. Bent's terms: hamerklopmachine (tapping
   machine), bronruimte (source room, also for impact), ontvangstruimte (receiving room, also for
   impact), tertsband, achtergrondgeluiddrukniveau, geluiddrukniveaus.
@@ -73,7 +77,7 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 281 passed, 1 skipped.
+Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 282 passed, 1 skipped.
 Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
 and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
 may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for

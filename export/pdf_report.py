@@ -281,9 +281,11 @@ def _overview_table(evs: list, kind: str, project: Project, options: ReportOptio
             req_head = T.COL_REQUIREMENT.format(basis=basis)
         cols += [("req", req_head, 18 if installation else 26 if airborne else 24),
                  ("check", T.COL_CHECK, 30)]
-    cols += [("remarks", T.COL_REMARKS, None)]
+    if options.measurement_remarks:
+        cols += [("remarks", T.COL_REMARKS, None)]
     left = FRAME_W / mm - sum(w for *_, w in cols if w)
-    widths = [w if w else left * (0.55 if key == "name" else 0.45) for key, _, w in cols]
+    share = {"name": 0.55, "remarks": 0.45} if options.measurement_remarks else {"name": 1.0}
+    widths = [w if w else left * share[key] for key, _, w in cols]
 
     rows = [[Paragraph(mk(h), st["head"]) for _, h, _ in cols]]
     extra = []
@@ -440,6 +442,7 @@ def _term_sentence(names: list) -> str:
 
 def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> list:
     """The 'Toelichting': only the notes that belong to what the report shows."""
+    all_evs = list(evs)
     kinds = {e.kind for e in evs}
     items = []
     if "airborne" in kinds:
@@ -500,10 +503,42 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
            for e in evs):
         items.append("Waar meerdere meetposities zijn gebruikt, zijn de geluiddrukniveaus energetisch "
                      "gemiddeld; meerdere nagalmtijdverlopen zijn rekenkundig gemiddeld.")
+    items += _remark_fallbacks(all_evs, options)
     if not items:
         return []
     return [Spacer(1, 4 * mm), Paragraph(T.SECTION_NOTES, st["h2"])] + \
         [Paragraph(f"\u2022 {t}", st["small"]) for t in items]
+
+
+def _remark_fallbacks(evs: list, options: ReportOptions) -> list[str]:
+    """With the remarks per measurement switched off: what the standards require and no other
+    part of the report shows, named per measurement (ISO 16283-1/-2 clause 14: limit values;
+    ISO 10052 6.2.1: overestimated installation noise; measurements without a result)."""
+    if options.measurement_remarks:
+        return []
+    out = []
+
+    def names(sel):
+        return ", ".join(T.display_name(e) for e in sel)
+
+    insulation = [e for e in evs if e.ok and e.kind != "installation"]
+    installation = [e for e in evs if e.ok and e.kind == "installation"]
+    if not (options.per_measurement_pages or options.per_band_tables):
+        limit = [e for e in insulation if e.result.n_limit]
+        if limit:
+            out.append(T.FALLBACK_LIMIT.format(names=names(limit)))
+    if not options.per_measurement_pages:
+        over = [e for e in installation if e.result.background_affected]
+        no_bg = [e for e in installation if e.result.background is None]
+        if over:
+            out.append(T.FALLBACK_OVER.format(names=names(over)))
+        if no_bg:
+            out.append(T.FALLBACK_NO_BG.format(names=names(no_bg)))
+    failed = [e for e in evs if not e.ok]
+    if failed:
+        out.append(T.FALLBACK_ERROR.format(items="; ".join(
+            f"{T.display_name(e)} ({T.note_text(e.error)})" for e in failed)))
+    return [txt(t) for t in out]
 
 
 _LIMIT_NEUTRAL = ("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (6 dB of minder erboven) "
@@ -805,7 +840,7 @@ def _result_box(ev: Evaluated, color: str, left: list, options: ReportOptions, s
 
 
 def _remarks(ev: Evaluated, options: ReportOptions, st: dict) -> list:
-    notes = notes_shown(ev, options)
+    notes = notes_shown(ev, options) if options.measurement_remarks else []
     if not notes:
         return []
     # one block, so the heading never stays behind alone at the bottom of a page
@@ -829,6 +864,11 @@ def _installation_page(ev: Evaluated, color: str, project: Project, options: Rep
         left.append(Paragraph(mk(T.METHOD_TEXT[r.method]), st["small"]))
     if r.background is not None:
         left.append(Paragraph(mk(T.DETAIL_INSTALL_BG.format(bg=num(r.background))), st["small"]))
+    if not options.measurement_remarks:          # ISO 10052 6.2.1: keep this with the value
+        if r.background is None:
+            left.append(Paragraph(T.DETAIL_INSTALL_NO_BG, st["small"]))
+        elif r.background_affected:
+            left.append(Paragraph(T.DETAIL_INSTALL_OVER, st["small"]))
     story.append(_result_box(ev, color, left, options, st))
     strip = _room_strip(ev, project, cache, st) if cache is not None else []
     story += strip or [Spacer(1, 3 * mm)]
