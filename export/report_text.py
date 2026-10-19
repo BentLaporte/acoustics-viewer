@@ -29,6 +29,7 @@ def number(value, nd: int = 1) -> str:
     """A level or time with a decimal comma and a real minus sign; '-' for a missing value."""
     if value is None or not np.isfinite(value):
         return "-"
+    value = round(float(value), nd) + 0.0      # + 0.0 turns -0.0 into 0.0: no minus zero
     return comma(f"{value:.{nd}f}").replace("-", "\u2212")
 
 
@@ -46,6 +47,34 @@ PAGE_OF = "Pagina {page} van {total}"
 FACT_CLIENT, FACT_LOCATION, FACT_AUTHOR = "Opdrachtgever", "Locatie", "Opgesteld door"
 FACT_DATE = "Rapportdatum"
 FACT_RT = "Gebruikte nagalmtijd"
+FACT_TEST_DATE = "Datum van de metingen"
+FACT_METHOD = "Meet- en beoordelingsmethode"
+PERIOD_TO = "tot en met"
+
+# The standards that were followed: the test report shall name them (ISO 16283-1/-2 clause 14,
+# ISO 717 5.1 / 4.4, ISO 10052 clause 8), state that the result comes from a field measurement
+# (engineering or survey method) and from one-third-octave band values (ISO 717-1 5.3, 717-2 4.4).
+METHOD = {
+    "airborne": "luchtgeluid: veldmeting volgens ISO 16283-1:2014 (ingenieursmethode), "
+                "beoordeling volgens ISO 717-1:2020, berekend uit tertsbandwaarden",
+    "impact": "contactgeluid: veldmeting met de hamerklopmachine volgens ISO 16283-2:2020 "
+              "(ingenieursmethode), beoordeling volgens ISO 717-2:2020, berekend uit "
+              "tertsbandwaarden",
+    "installation": "installatiegeluid: veldmeting volgens ISO 10052:2021 (controlemethode), "
+                    "beoordeling volgens NBN S 01-400-1:2022",
+}
+# installation noise with the integrated method: the deviation is stated with the standard ...
+METHOD_INSTALLATION_DEVIATION = "; afwijking: ge\u00efntegreerde methode (zie toelichting)"
+# ... or, when that remark is switched off, the standard is not claimed as the measurement method
+METHOD_INSTALLATION_FORMULAS = ("installatiegeluid: berekend met de formules van ISO 10052:2021, "
+                                "beoordeling volgens NBN S 01-400-1:2022")
+LIMIT_PREFIX = {"airborne": "\u2265", "impact": "\u2264"}   # limit value: DnT >= ..., L'nT <= ...
+DETAIL_EVALUATION = {
+    "airborne": "Beoordeling volgens ISO 717-1:2020 op basis van tertsbandwaarden van een "
+                "veldmeting volgens ISO 16283-1:2014 (ingenieursmethode).",
+    "impact": "Beoordeling volgens ISO 717-2:2020 op basis van tertsbandwaarden van een "
+              "veldmeting volgens ISO 16283-2:2020 (ingenieursmethode, hamerklopmachine).",
+}
 FACT_BASIS = "Eisen getoetst aan"
 REMARKS = "Opmerkingen"
 SECTION_AIRBORNE, SECTION_IMPACT = "Luchtgeluidisolatie", "Contactgeluiddrukniveau"
@@ -65,8 +94,10 @@ KIND_AXIS = {"airborne": "hoger is beter", "impact": "lager is beter",
 CURVES_HEAD = {"airborne": "Luchtgeluid: DnT per band", "impact": "Contactgeluid: L'nT per band"}
 CURVES_TITLE = {"airborne": "Gestandaardiseerd geluidsniveauverschil DnT",
                 "impact": "Gestandaardiseerd contactgeluidsdrukniveau L'nT"}
-BAND_TABLE_CAPTION = ("{name} per tertsband [dB]; banden dicht bij het achtergrondgeluiddrukniveau zijn "
-                      "gearceerd")
+BAND_TABLE_CAPTION = "{name} per tertsband [dB]"
+# added only when a band of the table is a limit value
+BAND_TABLE_LIMITS = ("; banden dicht bij het achtergrondgeluiddrukniveau zijn gearceerd: dat zijn "
+                     "grenswaarden ({name} {sign} de getoonde waarde)")
 COL_MEASUREMENT = "Meting"
 COL_MEASUREMENT_IMPACT = "Meting (bronruimte \u2192 ontvangstruimte)"
 COL_REQUIREMENT = "Eis ({basis})"
@@ -137,7 +168,8 @@ DETAIL_REQUIREMENT = "Eis {basis} {requirement}"
 DETAIL_CORRECTION = ("Correctie = correctie voor het achtergrondgeluiddrukniveau, toegepast op het geluiddrukniveau "
                      "in de ontvangstruimte.")
 DETAIL_LIMIT = ("* Band 6 dB of minder boven het achtergrondgeluiddrukniveau: gecorrigeerd met een vaste "
-                "1,3 dB en slechts een grenswaarde (gearceerd).")
+                "1,3 dB en slechts een grenswaarde (gearceerd, weergegeven als DnT \u2265 \u2026 of "
+                "L'nT \u2264 \u2026).")
 AIRBORNE_HEAD = ["Band\n[Hz]", "L1\n[dB]", "L2\ngemeten", "Lb\n[dB]", "L2\ngecorr.",
                  "Correc-\ntie [dB]", "T [s]", "D\n[dB]", "DnT\n[dB]", "Ref.-\ncurve",
                  "Ongunst.\nafw."]

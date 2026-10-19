@@ -88,9 +88,9 @@ def test_options_and_hidden(tmp_path):
     full, _, _ = build(p, tmp_path, name="b.pdf")
     _, _, no_bands = build(p, tmp_path, ReportOptions(per_band_tables=False, date=DATE),
                            name="c.pdf")
-    shaded = "banden dicht bij het achtergrondgeluiddrukniveau zijn gearceerd"
-    assert shaded in " ".join(read(full)[1])
-    assert shaded not in " ".join(no_bands)
+    caption = "DnT per tertsband [dB]"
+    assert caption in " ".join(read(full)[1])
+    assert caption not in " ".join(no_bands)
     # measurements unticked in the viewer are left out completely
     _, _, pages = build(p, tmp_path, hidden={("impact", "impact A to B (carpet)")}, name="d.pdf")
     joined = " ".join(pages)

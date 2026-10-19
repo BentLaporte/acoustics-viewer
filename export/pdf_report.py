@@ -24,8 +24,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from reportlab.platypus import (BaseDocTemplate, Frame, Image, KeepTogether, PageBreak,
-                                PageTemplate, Paragraph, Spacer, Table, TableStyle)
+from reportlab.platypus import (BaseDocTemplate, Flowable, Frame, Image, KeepTogether,
+                                PageBreak, PageTemplate, Paragraph, Spacer, Table, TableStyle)
 
 from calc.building import (AIRBORNE_BASES, IMPACT_BASES, INSTALLATION_QUANTITIES,
                            INTEGRATED_NOTE, Evaluated, Project, equipment_used, natural_key)
@@ -150,6 +150,13 @@ def _image(png: bytes, width=FRAME_W) -> Image:
     return Image(io.BytesIO(png), width=width, height=width * h / w)
 
 
+def _band_image(png: bytes) -> Image:
+    """A chart of values per band at its own size (pixels / DPI), never stretched: its scale on
+    paper is then 5 mm per one-third octave and 20 mm per 10 dB (ISO 16283 clause 12)."""
+    w, h = ImageReader(io.BytesIO(png)).getSize()
+    return Image(io.BytesIO(png), width=w / charts.DPI * 72, height=h / charts.DPI * 72)
+
+
 # ----------------------------------------------------------------------------- options
 def default_report_name(project: Project) -> str:
     safe = "".join(c for c in project.name if c not in '\\/:*?"<>|').strip() or "Building"
@@ -174,6 +181,13 @@ def shown_terms(options: ReportOptions, project: Project, evs: list, kind: str) 
         if _BASIS_TERM.get(basis) in allowed:
             terms.add(_BASIS_TERM[basis])
     return terms
+
+
+def limit_text(value, is_limit: bool, kind: str) -> str:
+    """A band value; a limit value (band close to the background) as 'DnT >= 45,3' would read:
+    '\u226545,3' (airborne) or '\u226445,3' (impact), as ISO 16283-1/-2 clause 14 i) asks."""
+    shown = num(value)
+    return f"{T.LIMIT_PREFIX[kind]}{shown}" if is_limit and shown != "-" else shown
 
 
 def notes_shown(ev: Evaluated, options: ReportOptions) -> list[str]:
@@ -301,6 +315,41 @@ def _counts(evs) -> dict:
     return c
 
 
+def measurement_dates_text(evs: list) -> str:
+    """The days on which the files of the included measurements were recorded (ISO 16283
+    clause 14 d): one to three days are listed, more as a period. '' if no file has a date."""
+    days = sorted({i.measured_at.date() for e in evs if e.ok and e.result.info
+                   for infos in e.result.info.values() for i in infos if i.measured_at})
+    if not days:
+        return ""
+    if len(days) <= 3:
+        return ", ".join(_date_text(d) for d in days)
+    return f"{_date_text(days[0])} {T.PERIOD_TO} {_date_text(days[-1])}"
+
+
+def method_lines(evs: list, options: ReportOptions) -> list[str]:
+    """One line per kind of measurement in the report: the standards that were followed.
+
+    Installation noise measured with the integrated method deviates from ISO 10052 6.3.4: the
+    line names the deviation, or, when the 'integrated method' remark is switched off, it does
+    not claim ISO 10052 as the measurement method (only its formulas)."""
+    kinds = [k for k in ("airborne", "impact", "installation") if any(e.kind == k for e in evs)]
+    lines = []
+    for kind in kinds:
+        if kind != "installation":
+            lines.append(T.METHOD[kind])
+            continue
+        integrated = any(e.ok and e.result.method == "integrated"
+                         for e in evs if e.kind == "installation")
+        if not integrated:
+            lines.append(T.METHOD[kind])
+        elif options.integrated_method_note:
+            lines.append(T.METHOD[kind] + T.METHOD_INSTALLATION_DEVIATION)
+        else:
+            lines.append(T.METHOD_INSTALLATION_FORMULAS)
+    return lines
+
+
 def _title_block(project: Project, evs: list, date: dt.date, options: ReportOptions,
                  st: dict) -> list:
     info = project.report
@@ -314,6 +363,12 @@ def _title_block(project: Project, evs: list, date: dt.date, options: ReportOpti
     if info.author:
         facts.append((T.FACT_AUTHOR, txt(info.author)))
     facts.append((T.FACT_DATE, _date_text(date)))
+    tested = measurement_dates_text(evs)
+    if tested:                     # the date of the test is required, whatever the switches say
+        facts.append((T.FACT_TEST_DATE, tested))
+    methods = method_lines(evs, options)
+    if methods:
+        facts.append((T.FACT_METHOD, "<br/>".join(mk(m[0].upper() + m[1:]) for m in methods)))
     kinds = {e.kind for e in evs}
     # airborne and impact use the project's choice; installation noise always T30 (else T20)
     rt = [T.RT_TEXT[project.rt_kind]] if kinds & {"airborne", "impact"} or not kinds else []
@@ -483,10 +538,13 @@ def _curves_section(evs: list, colors: dict, dashed: dict, kind: str, options: R
     png = charts.curves_chart([(e.label, colors[id(e)], dashed[id(e)], e.curve,
                                 e.result.status == "limit") for e in ok], f"{name} [dB]",
                               T.CURVES_TITLE[kind])
-    story.append(_image(png))
+    story.append(_band_image(png))
     if options.per_band_tables:
+        caption = T.BAND_TABLE_CAPTION
+        if any((e.result.status == "limit").any() for e in ok):
+            caption += T.BAND_TABLE_LIMITS
         story += [Spacer(1, 4 * mm),
-                  Paragraph(mk(T.BAND_TABLE_CAPTION.format(name=name)), st["small"]),
+                  Paragraph(mk(caption.format(name=name, sign=T.LIMIT_PREFIX[kind])), st["small"]),
                   Spacer(1, 1.5 * mm)]
         rows = [[Paragraph("", st["tinyhead"]), Paragraph(T.COL_MEASUREMENT, st["tinyhead"])] +
                 [Paragraph(b, st["tinyhead"]) for b in charts.BAND_LABELS]]
@@ -494,6 +552,8 @@ def _curves_section(evs: list, colors: dict, dashed: dict, kind: str, options: R
         for i, e in enumerate(ok, start=1):
             limit = e.result.status == "limit"
             rows.append([Paragraph("", st["tiny"]), Paragraph(txt(e.label), st["tiny"])] +
+                        # no room for the sign in these narrow cells: the shading and the
+                        # caption say that it is a limit value
                         [Paragraph(num(v), st["tinyc"]) for v in e.curve])
             extra.append(("BACKGROUND", (0, i), (0, i), rl.HexColor(colors[id(e)])))
             for b in np.nonzero(limit)[0]:
@@ -580,8 +640,10 @@ def _rooms_section(project: Project, evs: list, cache: PhotoCache, st: dict) -> 
     return story
 
 
-def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) -> list:
-    """Small main photo of the source / tapping room and the receiving room above the chart."""
+def _room_cells(ev: Evaluated, project: Project, cache: PhotoCache, st: dict,
+                max_w_mm: float, max_h_mm: float) -> list:
+    """Main photo, name and caption of the source / tapping room and of the receiving room:
+    one list of flowables per room; [] when neither room has a photo."""
     wanted = [(T.ROOM_LABEL["receiver"], ev.receiver_room)]
     if ev.source_room:
         wanted.insert(0, (T.ROOM_LABEL["tapping" if ev.kind == "impact" else "source"],
@@ -593,12 +655,58 @@ def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) ->
         cell = []
         if prepared is not None:
             any_photo = True
-            cell.append(_photo_image(prepared, 56, 32))
+            cell.append(_photo_image(prepared, max_w_mm, max_h_mm))
         cell.append(Paragraph(f"<b>{label}:</b> {txt(name)}", st["small"]))
         if prepared is not None and prepared.caption:
             cell.append(Paragraph(f"<i>{txt(prepared.caption)}</i>", st["small"]))
         cells.append(cell)
-    if not any_photo:
+    return cells if any_photo else []
+
+
+class ChartWithPhotos(Flowable):
+    """A band chart with the room photos drawn in its free bottom right corner, under the
+    legend (charts.rating_chart(ev, reserve_mm) keeps that corner free). This keeps a
+    measurement on one page although the chart has the fixed scale of ISO 16283."""
+    GAP = 3 * mm
+
+    def __init__(self, chart: Image, cells: list):
+        super().__init__()
+        self.chart, self.cells = chart, cells
+        self.cell_w = (charts.SIDE_W_MM * mm - self.GAP) / 2
+
+    @staticmethod
+    def block_height(cells: list, cell_w: float) -> float:
+        """Height (points) of the tallest room cell at the given width."""
+        return max(sum(f.wrap(cell_w, 1e6)[1] for f in cell) for cell in cells)
+
+    def wrap(self, avail_w, avail_h):
+        return self.chart.drawWidth, self.chart.drawHeight
+
+    def draw(self):
+        self.chart.drawOn(self.canv, 0, 0)
+        top = self.block_height(self.cells, self.cell_w)      # cells hang from the same line
+        for i, cell in enumerate(self.cells):
+            x, y = charts.SIDE_X_MM * mm + i * (self.cell_w + self.GAP), top
+            for f in cell:
+                _, h = f.wrap(self.cell_w, 1e6)
+                y -= h
+                f.drawOn(self.canv, x, y)
+
+
+def _chart_with_photos(ev: Evaluated, project: Project, cache: PhotoCache | None,
+                       st: dict) -> Image | ChartWithPhotos:
+    cells = _room_cells(ev, project, cache, st, 34, 24) if cache is not None else []
+    if not cells:
+        return _band_image(charts.rating_chart(ev))
+    cell_w = (charts.SIDE_W_MM * mm - ChartWithPhotos.GAP) / 2
+    reserve = ChartWithPhotos.block_height(cells, cell_w) / mm
+    return ChartWithPhotos(_band_image(charts.rating_chart(ev, reserve_mm=reserve)), cells)
+
+
+def _room_strip(ev: Evaluated, project: Project, cache: PhotoCache, st: dict) -> list:
+    """Small main photo of the source room and the receiving room above the level history."""
+    cells = _room_cells(ev, project, cache, st, 56, 32)
+    if not cells:
         return []
     half = FRAME_W / 2
     t = Table([cells + [""] * (2 - len(cells))], colWidths=[half, half])
@@ -683,8 +791,9 @@ def _remarks(ev: Evaluated, options: ReportOptions, st: dict) -> list:
     notes = notes_shown(ev, options)
     if not notes:
         return []
-    return [Paragraph(T.COL_REMARKS, st["h2"])] + \
-        [Paragraph(f"\u2022 {txt(T.note_text(n))}", st["small"]) for n in notes]
+    # one block, so the heading never stays behind alone at the bottom of a page
+    return [KeepTogether([Paragraph(T.COL_REMARKS, st["h2"])] +
+                         [Paragraph(f"\u2022 {txt(T.note_text(n))}", st["small"]) for n in notes])]
 
 
 def _installation_page(ev: Evaluated, color: str, project: Project, options: ReportOptions,
@@ -782,10 +891,10 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     left = [Paragraph(big, st["big"])]
     if detail:
         left.append(Paragraph(detail, st["small"]))
+    left.append(Paragraph(mk(T.DETAIL_EVALUATION[ev.kind]), st["small"]))   # 16283 clause 14
     story.append(_result_box(ev, color, left, options, st))
-    strip = _room_strip(ev, project, cache, st) if cache is not None else []
-    story += strip or [Spacer(1, 3 * mm)]
-    story += [_image(charts.rating_chart(ev, height_in=2.4 if strip else 2.9)), Spacer(1, 2 * mm)]
+    # the room photos sit next to the chart, under its legend (not in a strip above it)
+    story += [Spacer(1, 3 * mm), _chart_with_photos(ev, project, cache, st), Spacer(1, 2 * mm)]
 
     # values per band
     lim = r.status == "limit"
@@ -800,12 +909,13 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
         corr = "-" if abs(delta) < 1e-9 else num(delta) + ("*" if lim[i] else "")
         ref = "-" if rt is None else str(int(rt.curve[i]))
         dev = "-" if rt is None or rt.deviations[i] == 0 else num(rt.deviations[i])
+        result = limit_text(ev.curve[i], lim[i], ev.kind)       # DnT >= ... / L'nT <= ...
         if airborne:
             vals = [str(int(hz)), num(r.l1[i]), num(raw), num(r.lb[i]), num(corrected), corr,
-                    num(r.t[i], 3), num(r.d[i]), num(r.dnt[i]), ref, dev]
+                    num(r.t[i], 3), num(r.d[i]), result, ref, dev]
         else:
             vals = [str(int(hz)), num(raw), num(r.lb[i]), num(corrected), corr, num(r.t[i], 3),
-                    num(r.lnt[i]), ref, dev]
+                    result, ref, dev]
         rows.append([Paragraph(v, st["cellc"]) for v in vals])
         if lim[i]:
             extra.append(("BACKGROUND", (0, i + 1), (-1, i + 1), rl.HexColor(LIMIT_BG)))
@@ -814,6 +924,10 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
                           rl.HexColor("#f5b7b1")))
     extra.append(("LEFTPADDING", (0, 0), (-1, -1), 2))
     extra.append(("RIGHTPADDING", (0, 0), (-1, -1), 2))
+    # compact band rows: the chart above has a fixed scale (up to ~120 mm high for impact),
+    # and result, chart, table and file list should still fit on one page
+    extra.append(("TOPPADDING", (0, 1), (-1, -1), 0.8))
+    extra.append(("BOTTOMPADDING", (0, 1), (-1, -1), 0.8))
     story.append(_table(rows, widths, st, extra=extra))
     small = [T.DETAIL_CORRECTION]
     if lim.any():
