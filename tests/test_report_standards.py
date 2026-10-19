@@ -113,3 +113,19 @@ def test_report_names_method_and_date_and_marks_limit_values(tmp_path):
     joined = " ".join(pages)
     assert f"grenswaarden (DnT {GE}" in joined                          # comparison caption
     assert any(f"{GE}4" in pg or f"{GE}5" in pg or f"{GE}6" in pg for pg in pages[2:])
+
+
+def test_rating_chart_range_follows_the_measurement_only():
+    # ends on 5 dB, still the ISO scale; grid and labels stay on multiples of 10 dB
+    assert charts.db_range([9.6, 54.0], step=5) == (5, 55)
+    assert charts.db_range([9.6, 54.0]) == (0, 60)
+    ev = example_airborne()
+    fig, legend = charts._rating_figure(ev)
+    labels = [t.get_text() for t in legend.get_texts()]
+    assert not any("onverschoven" in x for x in labels)        # unshifted curve: not drawn
+    ax = fig.axes[0]
+    lo, hi = ax.get_ylim()
+    values = np.concatenate([ev.curve, ev.rating.curve])
+    assert lo <= values.min() and hi >= values.max() and lo % 5 == 0 and hi % 5 == 0
+    assert all(t % 10 == 0 for t in ax.get_yticks())
+    assert ax.get_title(loc="right") == ""                     # the rating is in the box above

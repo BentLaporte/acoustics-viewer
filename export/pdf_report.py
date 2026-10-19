@@ -42,7 +42,7 @@ from .report_text import date_text as _date_text
 from .report_text import number as num
 
 PAGE = A4
-MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18 * mm, 16 * mm, 20 * mm
+MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18 * mm, 16 * mm, 18 * mm    # footer line at 15 mm
 FRAME_W = PAGE[0] - 2 * MARGIN_X                       # 174 mm
 FONT, FONT_B = "DejaVu", "DejaVu-Bold"
 # 'tolerance' (complies only within the NBN tolerance) is a paler, more olive green than a clean pass
@@ -967,11 +967,11 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     left = [Paragraph(big, st["big"])]
     if detail:
         left.append(Paragraph(detail, st["small"]))
-    left.append(Paragraph(mk(T.DETAIL_EVALUATION[ev.kind]), st["small"]))   # 16283 clause 14
+    method = T.DETAIL_EVALUATION[ev.kind]                                   # 16283 clause 14
     if options.uncertainty and ev.uncertainty is not None:                    # ISO 12999-1
-        left.append(Paragraph(mk(T.DETAIL_UNCERTAINTY.format(
-            quantity=ev.basis_label, value=minus(ev.assessed), u=num(ev.uncertainty))),
-            st["small"]))
+        method += " " + T.DETAIL_UNCERTAINTY.format(
+            quantity=ev.basis_label, value=minus(ev.assessed), u=num(ev.uncertainty))
+    left.append(Paragraph(mk(method), st["small"]))         # one paragraph: no half-empty line
     story.append(_result_box(ev, color, left, options, st))
     # the room photos sit next to the chart, under its legend (not in a strip above it)
     story += [Spacer(1, 3 * mm), _chart_with_photos(ev, project, cache, st), Spacer(1, 2 * mm)]
@@ -1008,11 +1008,13 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     # and result, chart, table and file list should still fit on one page
     extra.append(("TOPPADDING", (0, 1), (-1, -1), 0.8))
     extra.append(("BOTTOMPADDING", (0, 1), (-1, -1), 0.8))
-    story.append(_table(rows, widths, st, extra=extra))
-    small = [T.DETAIL_CORRECTION]
+    caption = T.DETAIL_CORRECTION
     if lim.any():
-        small.append(T.DETAIL_LIMIT)
-    story += [Spacer(1, 1.5 * mm)] + [Paragraph(t, st["small"]) for t in small]
+        caption += " " + T.DETAIL_LIMIT.format(quantity="DnT" if airborne else "L'nT",
+                                               sign=T.LIMIT_PREFIX[ev.kind])
+    # table and its caption stay together: never a table split over two pages
+    story.append(KeepTogether([_table(rows, widths, st, extra=extra), Spacer(1, 1.5 * mm),
+                               Paragraph(mk(caption), st["small"])]))
     if options.measurement_files:
         story += _file_lines(ev, st, options.file_dates)
     story += _remarks(ev, options, st)

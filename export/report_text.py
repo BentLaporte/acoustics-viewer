@@ -70,10 +70,10 @@ METHOD_INSTALLATION_FORMULAS = ("installatiegeluid: berekend met de formules van
                                 "beoordeling volgens NBN S 01-400-1:2022")
 LIMIT_PREFIX = {"airborne": "\u2265", "impact": "\u2264"}   # limit value: DnT >= ..., L'nT <= ...
 DETAIL_EVALUATION = {
-    "airborne": "Beoordeling volgens ISO 717-1:2020 op basis van tertsbandwaarden van een "
-                "veldmeting volgens ISO 16283-1:2014 (ingenieursmethode).",
-    "impact": "Beoordeling volgens ISO 717-2:2020 op basis van tertsbandwaarden van een "
-              "veldmeting volgens ISO 16283-2:2020 (ingenieursmethode, hamerklopmachine).",
+    "airborne": "Veldmeting ISO 16283-1:2014 (ingenieursmethode), beoordeling ISO 717-1:2020 "
+                "uit tertsbandwaarden.",
+    "impact": "Veldmeting ISO 16283-2:2020 (ingenieursmethode, hamerklopmachine), beoordeling "
+              "ISO 717-2:2020 uit tertsbandwaarden.",
 }
 # measurement uncertainty, ISO 12999-1:2020 (calc/iso12999.py): situation B, k = 1
 DETAIL_UNCERTAINTY = "{quantity} = {value} \u00b1 {u} dB (k = 1; ISO 12999-1:2020, situatie B)."
@@ -201,9 +201,9 @@ DETAIL_SHIFT = ("Referentiecurve verschoven {shift} dB; som van de ongunstige af
 DETAIL_REQUIREMENT = "Eis {basis} {requirement}"
 DETAIL_CORRECTION = ("Correctie = correctie voor het achtergrondgeluiddrukniveau, toegepast op het geluiddrukniveau "
                      "in de ontvangstruimte.")
-DETAIL_LIMIT = ("* Band 6 dB of minder boven het achtergrondgeluiddrukniveau: gecorrigeerd met een vaste "
-                "1,3 dB en slechts een grenswaarde (gearceerd, weergegeven als DnT \u2265 \u2026 of "
-                "L'nT \u2264 \u2026).")
+DETAIL_LIMIT = ("* 6 dB of minder boven het achtergrondgeluiddrukniveau: vaste correctie van "
+                "1,3 dB, de waarde is slechts een grenswaarde ({quantity} {sign} \u2026, "
+                "gearceerd).")
 AIRBORNE_HEAD = ["Band\n[Hz]", "L1\n[dB]", "L2\ngemeten", "Lb\n[dB]", "L2\ngecorr.",
                  "Correc-\ntie [dB]", "T [s]", "D\n[dB]", "DnT\n[dB]", "Ref.-\ncurve",
                  "Ongunst.\nafw."]

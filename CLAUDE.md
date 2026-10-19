@@ -59,6 +59,10 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
   (Bent: keeps a measurement on one page; no standard asks for file names). `file_dates` only
   applies with it (greyed out in the dialog). CLI: `--measurement-files` switches it on; a
   switch with default off gets a `--<name>` flag instead of `--no-<name>`.
+* Measurement-page chart: no unshifted reference curve and no title (the rating is in the
+  result box); axis ends on 5 dB, grid every 10 dB; ISO scale kept. Band table + caption are
+  one KeepTogether. Checked on KPW (33 -> 26 pages, all on one page) and Centrimo (one bare
+  floor with a 65 dB span still needs two pages: the table moves whole).
 * Dutch wording lives only in `export/report_text.py`. Bent's terms: hamerklopmachine (tapping
   machine), bronruimte (source room, also for impact), ontvangstruimte (receiving room, also for
   impact), tertsband, achtergrondgeluiddrukniveau, geluiddrukniveaus.
@@ -81,7 +85,7 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 284 passed, 1 skipped (19 Oct, after the measurement-files switch).
+Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 285 passed, 1 skipped.
 Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
 and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
 may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for

@@ -17,7 +17,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import FixedLocator, FuncFormatter
 
-from calc.iso717 import BANDS, I500, REF_AIRBORNE, REF_IMPACT
+from calc.iso717 import BANDS, I500
 from calc.levels import round_tenth
 
 from .report_text import comma, number
@@ -33,6 +33,7 @@ MM_PER_BAND, MM_PER_DB = 5.0, 2.0
 FIG_W_MM = 174.0                    # the text width of the report page
 LEFT_MM, BOTTOM_MM, TOP_MM, GAP_MM = 15.0, 11.0, 7.0, 5.0
 PLOT_W_MM = MM_PER_BAND * len(BANDS)        # 80 mm for 100 ... 3150 Hz
+NO_TITLE_TOP_MM = 3.0                       # above a plot without title: half a tick label
 SIDE_X_MM = LEFT_MM + PLOT_W_MM + GAP_MM    # the column right of the plot: legend (and photos)
 SIDE_W_MM = FIG_W_MM - SIDE_X_MM
 # octave centre frequencies are labelled, every one-third octave band gets a tick
@@ -50,7 +51,7 @@ def _png(fig: Figure) -> bytes:
 
 
 def db_range(*arrays, step: int = 10, minimum: int = 30) -> tuple[int, int]:
-    """Axis limits on whole multiples of 10 dB around the finite values (at least 30 dB)."""
+    """Axis limits on whole multiples of step dB around the finite values (at least 30 dB)."""
     values = np.concatenate([np.asarray(a, float).ravel() for a in arrays])
     values = values[np.isfinite(values)]
     lo = int(np.floor(values.min() / step) * step) if values.size else 20
@@ -60,13 +61,14 @@ def db_range(*arrays, step: int = 10, minimum: int = 30) -> tuple[int, int]:
     return lo, hi
 
 
-def band_figure(lo: int, hi: int, extra_height_mm: float = 0.0):
+def band_figure(lo: int, hi: int, extra_height_mm: float = 0.0, top_mm: float = TOP_MM):
     """Figure FIG_W_MM wide with a plot area of exactly 5 mm per band and 2 mm per dB at the
-    left; the space at the right is for the legend. Returns (figure, axes)."""
+    left; the space at the right is for the legend. top_mm: room above the plot (a title needs
+    TOP_MM, without a title only the top tick label needs a little). Returns (figure, axes)."""
     plot_h = (hi - lo) * MM_PER_DB
-    height = max(BOTTOM_MM + plot_h + TOP_MM, extra_height_mm)
+    height = max(BOTTOM_MM + plot_h + top_mm, extra_height_mm)
     fig = Figure(figsize=(FIG_W_MM / 25.4, height / 25.4))
-    ax = fig.add_axes([LEFT_MM / FIG_W_MM, (height - TOP_MM - plot_h) / height,
+    ax = fig.add_axes([LEFT_MM / FIG_W_MM, (height - top_mm - plot_h) / height,
                        PLOT_W_MM / FIG_W_MM, plot_h / height])
     ax.set_ylim(lo, hi)
     ax.set_xlim(-0.5, len(BANDS) - 0.5)
@@ -79,8 +81,8 @@ def _band_axis(ax, ylabel: str):
     ax.xaxis.set_minor_locator(FixedLocator(range(len(BANDS))))
     ax.set_xlabel("Frequentie [Hz] (tertsbanden)", fontsize=7)
     ax.set_ylabel(ylabel, fontsize=7)
-    ax.yaxis.set_major_locator(FixedLocator(np.arange(*ax.get_ylim(), 10).tolist()
-                                            + [ax.get_ylim()[1]]))
+    lo, hi = ax.get_ylim()            # labels and grid every 10 dB, also when the ends are at 5
+    ax.yaxis.set_major_locator(FixedLocator(np.arange(np.ceil(lo / 10) * 10, hi + 1e-6, 10)))
     ax.yaxis.set_major_formatter(COMMA_AXIS)
     ax.tick_params(axis="both", labelsize=6.5)
     ax.grid(True, which="major", alpha=0.35, lw=0.5)
@@ -198,14 +200,15 @@ def rating_chart(ev, reserve_mm: float = 0.0) -> bytes:
 
 def _rating_figure(ev, extra_height_mm: float = 0.0):
     above = ev.kind == "impact"
-    ref0 = REF_IMPACT if above else REF_AIRBORNE
     quantity = "L'nT" if above else "DnT"
     rt = ev.rating
     curve = np.asarray(ev.curve, float)
     x = np.arange(len(BANDS))
-    lo, hi = db_range(curve, ref0, rt.curve if rt is not None else [])
-    fig, ax = band_figure(lo, hi, extra_height_mm)
-    ax.plot(x, ref0, color=GREY, ls=":", lw=1.2, label="Referentiecurve (onverschoven)")
+    # the axis range follows the measured and the shifted reference curve only: the unshifted
+    # reference curve is not drawn, it added up to 40 mm of empty plot at 20 mm per 10 dB
+    # ends on 5 dB: up to 10 dB (20 mm) less empty plot than on 10 dB, the scale is the same
+    lo, hi = db_range(curve, rt.curve, step=5) if rt is not None else db_range(curve, step=5)
+    fig, ax = band_figure(lo, hi, extra_height_mm, top_mm=NO_TITLE_TOP_MM)
     ok = np.isfinite(curve)
     if rt is not None:
         shift = f"{rt.shift:+d}".replace("-", "\u2212")
@@ -218,9 +221,8 @@ def _rating_figure(ev, extra_height_mm: float = 0.0):
                 label=f"Referentiecurve verschoven {shift} dB")
     ax.plot(x[ok], curve[ok], color=GREEN, lw=1.4, marker="d", ms=3.2,
             label=f"{quantity} (gemeten)")
-    if rt is not None:
+    if rt is not None:            # the rating itself is in the result box above the chart
         ax.plot([I500], [rt.curve[I500]], "o", mfc="none", mec="black", ms=9, mew=1.3)
-        ax.set_title(f"{quantity},w = {rt.value} dB", fontsize=8, fontweight="bold", loc="right")
     lim = np.asarray(ev.result.status == "limit", bool) & ok
     if lim.any():
         ax.plot(x[lim], curve[lim], "x", color="#e67e22", ms=6, mew=1.5,
