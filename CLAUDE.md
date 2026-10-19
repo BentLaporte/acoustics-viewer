@@ -77,7 +77,7 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 282 passed, 1 skipped.
+Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 284 passed, 1 skipped.
 Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
 and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
 may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for

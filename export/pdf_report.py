@@ -20,7 +20,7 @@ from reportlab.lib import colors as rl
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
+from reportlab.lib.utils import ImageReader, simpleSplit
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
@@ -224,14 +224,32 @@ def _canvas_maker(left: str, right: str):
             self.setStrokeColor(rl.HexColor("#b2babb"))
             self.setLineWidth(0.4)
             self.line(MARGIN_X, y + 4 * mm, PAGE[0] - MARGIN_X, y + 4 * mm)
-            self.setFont(FONT, 7.2)
+            self.setFont(FONT, FOOTER_SIZE)
             self.setFillColor(rl.HexColor("#566573"))
-            self.drawString(MARGIN_X, y, left[:80])
-            self.drawCentredString(PAGE[0] / 2, y,
-                                   T.PAGE_OF.format(page=self._pageNumber, total=total))
-            self.drawRightString(PAGE[0] - MARGIN_X, y, right)
+            # page number and date share the right side, so a long project name (left) never
+            # runs into them; the name gets the rest of the width, on at most two lines
+            page_date = f"{T.PAGE_OF.format(page=self._pageNumber, total=total)}   |   {right}"
+            self.drawRightString(PAGE[0] - MARGIN_X, y, page_date)
+            room = FRAME_W - pdfmetrics.stringWidth(page_date, FONT, FOOTER_SIZE) - 8 * mm
+            for i, line in enumerate(footer_lines(left, room)):
+                self.drawString(MARGIN_X, y - i * 3 * mm, line)
 
     return NumberedCanvas
+
+
+FOOTER_SIZE = 7.2
+
+
+def footer_lines(text: str, width: float, max_lines: int = 2) -> list[str]:
+    """The project name for the footer: wrapped to the width (points), at most max_lines lines;
+    only a name that still does not fit ends in an ellipsis."""
+    lines = simpleSplit(text, FONT, FOOTER_SIZE, width) or [""]
+    if len(lines) <= max_lines:
+        return lines
+    last = " ".join(lines[max_lines - 1:])
+    while last and pdfmetrics.stringWidth(last + "\u2026", FONT, FOOTER_SIZE) > width:
+        last = last[:-1]
+    return lines[:max_lines - 1] + [last.rstrip() + "\u2026"]
 
 
 # ----------------------------------------------------------------------------- content blocks
