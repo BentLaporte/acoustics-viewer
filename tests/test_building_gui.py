@@ -495,6 +495,7 @@ class FakeReportDialog:
     bands_ = True
     photos_ = True
     dates_ = True
+    files_ = False           # the file list on measurement pages (off by default)
     open_ = False
     extra_ = {}              # other switches, e.g. {'requirements': False}
     seen = None
@@ -522,6 +523,7 @@ class FakeReportDialog:
         return ReportOptions(per_measurement_pages=self.pages.isChecked(),
                              per_band_tables=self.bands.isChecked(),
                              room_photos=self.photos.isChecked(), file_dates=self.dates.isChecked(),
+                             measurement_files=FakeReportDialog.files_,
                              **FakeReportDialog.extra_, date=self.report_date())
 
 
@@ -797,6 +799,7 @@ def test_export_passes_the_dates_option_and_stores_the_equipment(app, settings, 
     FakeReportDialog.accepted, FakeReportDialog.open_ = True, False
     FakeReportDialog.pages_, FakeReportDialog.bands_, FakeReportDialog.photos_ = True, False, True
     FakeReportDialog.info_ = ReportInfo(equipment="Calibrator X")
+    FakeReportDialog.files_ = True                                    # dates need the file list
     _patch_export(monkeypatch, tmp_path / "d.pdf")
     for wanted in (True, False):
         FakeReportDialog.dates_ = wanted
@@ -806,7 +809,7 @@ def test_export_passes_the_dates_option_and_stores_the_equipment(app, settings, 
         assert ("22/09/2026 12:11" in text) is wanted
         assert "Calibrator X" in text and "SV 977D" in text           # equipment is always there
     assert page.project.report.equipment == "Calibrator X"            # remembered in the project
-    FakeReportDialog.dates_ = True
+    FakeReportDialog.dates_, FakeReportDialog.files_ = True, False
 
 
 # ------------------------------------------------------------------ report switches
@@ -820,7 +823,10 @@ def test_report_dialog_has_a_checkbox_for_every_switch(app, settings, tmp_path):
     photos = d.toggles["room_photos"]
     assert not photos.isEnabled() and not photos.isChecked()
     got = d.report_options()
-    assert all(getattr(got, t.key) for t in TOGGLES)          # the disabled one keeps its default
+    assert all(getattr(got, t.key) == t.default for t in TOGGLES)  # disabled ones keep theirs
+    assert not d.files.isChecked() and not d.dates.isEnabled()     # dates only with the files
+    d.files.setChecked(True)
+    assert d.dates.isEnabled()
     d.toggles["requirements"].setChecked(False)
     d.toggles["term_ctr"].setChecked(False)
     assert not d.report_options().requirements and not d.report_options().term_ctr

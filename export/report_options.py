@@ -64,7 +64,13 @@ TOGGLES: tuple[Toggle, ...] = (
     Toggle("per_measurement_pages", "One page per measurement (chart and values per band)",
            "Detail"),
     Toggle("per_band_tables", "Values per band under the comparison curves", "Detail"),
-    Toggle("file_dates", "Date and time of each measurement file", "Detail"),
+    Toggle("measurement_files", "Measurement files on each measurement page", "Detail",
+           default=False,
+           tip="The list of .SVL files (source, receiver, background, reverberation time) at "
+               "the bottom of each measurement page. No standard asks for it; the date of the "
+               "test (first page) and the instruments (equipment list) stay in the report."),
+    Toggle("file_dates", "Date and time of each measurement file", "Detail",
+           tip="Only with the measurement files."),
 )
 
 
@@ -84,6 +90,7 @@ class ReportOptions:
     room_photos: bool = True               # photos page and small photos on measurement pages
     per_measurement_pages: bool = True     # one page with chart and band table per measurement
     per_band_tables: bool = True           # values per band under the comparison curves
+    measurement_files: bool = False        # file list on the measurement pages
     file_dates: bool = True                # date and time of every measurement file
     date: dt.date | None = None            # report date, default today (not a switch)
 

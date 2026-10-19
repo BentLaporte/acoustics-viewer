@@ -935,7 +935,8 @@ def _installation_page(ev: Evaluated, color: str, project: Project, options: Rep
                      Paragraph(f"<b>{num(r.t_octaves[octave], 3)}</b>", st["cellc"])])
     story += [Spacer(1, 3 * mm), _table(rows, [26, 40, 70, 38], st),
               Spacer(1, 1.5 * mm), Paragraph(mk(T.DETAIL_INSTALL_RT), st["small"])]
-    story += _file_lines(ev, st, options.file_dates)
+    if options.measurement_files:
+        story += _file_lines(ev, st, options.file_dates)
     story += _remarks(ev, options, st)
     return story
 
@@ -1012,7 +1013,8 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     if lim.any():
         small.append(T.DETAIL_LIMIT)
     story += [Spacer(1, 1.5 * mm)] + [Paragraph(t, st["small"]) for t in small]
-    story += _file_lines(ev, st, options.file_dates)
+    if options.measurement_files:
+        story += _file_lines(ev, st, options.file_dates)
     story += _remarks(ev, options, st)
     return story
 

@@ -42,7 +42,7 @@ def build(p, tmp_path, **options):
 
 @needs_samples
 def test_installation_section_and_pages(tmp_path):
-    reader, pages = build(project(), tmp_path)
+    reader, pages = build(project(), tmp_path, measurement_files=True)
     first = pages[0]
     assert first.startswith("Geluidsmetingen") and reader.metadata.title == "Woning - geluidsmetingen"
     assert "Installatiegeluid" in first and "Luchtgeluidisolatie" not in first

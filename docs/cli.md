@@ -61,7 +61,8 @@ is not conclusive or could not be calculated), `--pdf FILE`, `--no-measurement-p
 `--no-band-tables`, `--no-photos`, `--no-dates`, `--no-requirements`, `--no-term-c`,
 `--no-term-ctr`, `--no-term-ci`, `--no-summary`, `--no-remarks`, `--no-equipment`,
 `--no-notes` (each leaves that part out of the PDF; the choices saved in the project from the
-viewer apply first, a flag only switches a part off), `--date YYYY-MM-DD` (report date). The
+viewer apply first, a flag only switches a part off), `--measurement-files` (the list of files
+on each measurement page, off by default; `--no-dates` then leaves out their dates), `--date YYYY-MM-DD` (report date). The
 PDF is in Dutch.
 
 `info SVL...`: `--format text|json`, `--output`.

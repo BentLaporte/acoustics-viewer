@@ -61,7 +61,8 @@ def test_report_structure_and_content(tmp_path):
     assert "Vergelijking" in pages[1]
     assert "per band" in pages[2] and "per band" in pages[3]
     assert "Luchtgeluid A naar B (wall)" in pages[4] and "Contactgeluid A naar B (carpet)" in pages[5]
-    assert "luchtgeluid_bron_L2.SVL" in pages[4] and "contactgeluid_L4.SVL" in pages[5]                # file names only
+    # the file list is off by default (switch measurement_files): no file names at all
+    assert "luchtgeluid_bron_L2.SVL" not in pages[4] and "contactgeluid_L4.SVL" not in pages[5]
     assert str(S) not in "".join(pages)                                      # no full paths
     assert "Pagina 6 van 6" in pages[5] and "Pagina 1 van 6" in first
     assert reader.metadata.title == "Test building - geluidsmetingen"
@@ -260,7 +261,7 @@ def test_many_photos_flow_over_pages(tmp_path):
 # ------------------------------------------------------------------ date and time per file
 @needs_samples
 def test_each_file_shows_its_measurement_date_and_time(tmp_path):
-    _, _, pages = build(project(), tmp_path)
+    _, _, pages = build(project(), tmp_path, ReportOptions(date=DATE, measurement_files=True))
     airborne, impact = pages[4], pages[5]
     assert "Meetbestanden (datum en tijd van de meting)" in airborne
     # airborne: source luchtgeluid_bron_L2 12:11, receiver luchtgeluid_ontvangst_L2 12:16, background 28/09 11:40, RT 12:44
@@ -276,7 +277,7 @@ def test_each_file_shows_its_measurement_date_and_time(tmp_path):
 def test_several_files_per_role_are_listed_each_with_its_time(tmp_path):
     p = project()
     p.airborne[0].receiver_files = [f("luchtgeluid_ontvangst_L2.SVL"), f("contactgeluid_L4.SVL")]
-    _, _, pages = build(p, tmp_path)
+    _, _, pages = build(p, tmp_path, ReportOptions(date=DATE, measurement_files=True))
     page = pages[4]
     assert "luchtgeluid_ontvangst_L2.SVL (22/09/2026 12:16)" in page and "contactgeluid_L4.SVL (22/09/2026 12:19)" in page
 
@@ -293,7 +294,8 @@ def test_results_without_file_info_fall_back_to_names(tmp_path):
     ev = evaluate_project(p)
     for e in ev:
         e.result.info = None                                      # e.g. results made by older code
-    out = build_pdf_report(p, ev, tmp_path / "old.pdf", ReportOptions(date=DATE))
+    out = build_pdf_report(p, ev, tmp_path / "old.pdf",
+                           ReportOptions(date=DATE, measurement_files=True))
     text = " ".join(" ".join(pg.extract_text().split()) for pg in pypdf.PdfReader(str(out)).pages)
     assert "luchtgeluid_bron_L2.SVL" in text and "(22/09/2026" not in text
 
@@ -339,8 +341,9 @@ def test_no_equipment_section_without_instruments_or_text(tmp_path):
 @needs_samples
 def test_file_dates_are_optional(tmp_path):
     p = project()
-    _, _, with_dates = build(p, tmp_path, ReportOptions(date=DATE), name="a.pdf")
-    _, _, no_dates = build(p, tmp_path, ReportOptions(file_dates=False, date=DATE), name="b.pdf")
+    files = dict(date=DATE, measurement_files=True)
+    _, _, with_dates = build(p, tmp_path, ReportOptions(**files), name="a.pdf")
+    _, _, no_dates = build(p, tmp_path, ReportOptions(file_dates=False, **files), name="b.pdf")
     assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11)" in with_dates[4]
     assert "Meetbestanden (datum en tijd van de meting)" in with_dates[4]
     assert "22/09/2026" not in no_dates[4] and "28/09/2026" not in no_dates[4]

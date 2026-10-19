@@ -389,10 +389,13 @@ def cmd_building(args) -> int:
         except ImportError as exc:
             raise CliError(f"PDF export needs reportlab and matplotlib: {exc}") from None
         when = dt.date.fromisoformat(args.date) if args.date else None
-        # the choices saved in the project (made in the viewer) apply; a flag switches a part off
+        # the choices saved in the project (made in the viewer) apply; a --no-... flag switches a
+        # part off, a --<part> flag switches on a part that is off by default
         saved = ReportOptions.from_dict(project.report_options).to_dict()
         off = {t.key for t in TOGGLES if getattr(args, f"off_{t.key}", False)}
-        options = ReportOptions(**{k: v and k not in off for k, v in saved.items()}, date=when)
+        on = {t.key for t in TOGGLES if getattr(args, f"on_{t.key}", False)}
+        options = ReportOptions(**{k: (v or k in on) and k not in off for k, v in saved.items()},
+                                date=when)
         try:
             build_pdf_report(project, evs, args.pdf, options)
         except OSError as exc:
@@ -433,9 +436,14 @@ def _report_flags(parser) -> None:
     """--no-<part> for every switch of the PDF report; they act on top of the project's choices."""
     from export.report_options import TOGGLES
     for t in TOGGLES:
+        label = t.label[0].lower() + t.label[1:]
+        if not t.default:                          # off unless asked for, e.g. --measurement-files
+            parser.add_argument("--" + t.key.replace("_", "-"), dest=f"on_{t.key}",
+                                action="store_true", help=f"PDF: include: {label}")
+            continue
         flag = _FLAG_NAMES.get(t.key, "--no-" + t.key.replace("_", "-"))
         parser.add_argument(flag, dest=f"off_{t.key}", action="store_true",
-                            help=f"PDF: leave out: {t.label[0].lower() + t.label[1:]}")
+                            help=f"PDF: leave out: {label}")
 
 
 def build_parser() -> argparse.ArgumentParser:

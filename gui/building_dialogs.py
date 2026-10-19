@@ -480,6 +480,16 @@ class ReportDialog(QtWidgets.QDialog):
         self.bands = self.toggles["per_band_tables"]
         self.photos = photos
         self.dates = self.toggles["file_dates"]
+        # switches that only mean something with another one: greyed out without it
+        self.files = self.toggles["measurement_files"]
+
+        def follow():
+            self.files.setEnabled(self.pages.isChecked())
+            self.dates.setEnabled(self.pages.isChecked() and self.files.isChecked())
+
+        self.pages.toggled.connect(follow)
+        self.files.toggled.connect(follow)
+        follow()
 
         self.open_after = QtWidgets.QCheckBox("Open the PDF when it is ready")
         self.open_after.setChecked(True)

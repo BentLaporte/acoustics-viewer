@@ -259,11 +259,16 @@ def test_building_pdf_options(capsys, tmp_path):
     pypdf = pytest.importorskip("pypdf")
     path = building(tmp_path)
     out = tmp_path / "r.pdf"
-    code, _, err = run(capsys, "building", path, "--pdf", out, "--date", "2026-10-01")
+    code, _, err = run(capsys, "building", path, "--pdf", out, "--date", "2026-10-01",
+                       "--measurement-files")                  # off by default, switched on
     assert code == 0 and "report written" in err and out.read_bytes()[:5] == b"%PDF-"
     pages = [" ".join(p.extract_text().split()) for p in pypdf.PdfReader(str(out)).pages]
     assert "1 oktober 2026" in pages[0] and len(pages) == 6
     assert "luchtgeluid_bron_L2.SVL (22/09/2026 12:11)" in " ".join(pages)
+    plain = tmp_path / "p.pdf"
+    run(capsys, "building", path, "--pdf", plain, "--date", "2026-10-01")
+    text = " ".join(p.extract_text() for p in pypdf.PdfReader(str(plain)).pages)
+    assert "luchtgeluid_bron_L2.SVL" not in text and "Meetbestanden" not in text
     short = tmp_path / "s.pdf"
     run(capsys, "building", path, "--pdf", short, "--no-dates", "--no-measurement-pages",
         "--no-band-tables", "--no-photos")
