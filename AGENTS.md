@@ -39,8 +39,11 @@ Numbers in the JSON are plain floats/ints, `null` where a value is missing (neve
 3. **File layouts are reverse engineered.** `docs/svl-format.md` says what is verified against
    SvanPC++ and what is not. A reader must refuse a file it does not recognise (raise `SvlError`
    with a clear message) instead of guessing; alignment is checked on the data.
-4. **Honest wording:** results are not validated end to end against an independent program. Do not
-   write "certified", "accredited" or a measurement-standard compliance claim into reports.
+4. **Honest wording:** the report names the standards that were followed (as the standards require,
+   e.g. ISO 16283-1 clause 14 a)); it never claims the software or the results are validated,
+   certified or accredited. Every deviation from a named standard is stated in the report (e.g.
+   the integrated method for installation noise, ISO 10052 6.3.4). Results are not validated end
+   to end against an independent program.
 5. A pass of a requirement is always reliable; a failure can be `inconclusive` when bands close to
    the background (limit values) could change it (`Evaluated.check` in `calc/building.py`).
 6. Tests that compare with SvanPC++ values are in `tests/test_svanpc_977c.py`, `test_parser.py`,

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .levels import round_tenth
+
 BANDS = np.array([100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250,
                   1600, 2000, 2500, 3150])
 I500 = 7   # index of 500 Hz
@@ -48,7 +50,7 @@ def _prepare(values) -> np.ndarray:
         raise ValueError("expected 16 values, 100 Hz ... 3150 Hz")
     if not np.all(np.isfinite(v)):
         raise ValueError("all 16 bands are required for the rating")
-    return np.round(v, 1)          # the standards work with values to 0.1 dB
+    return round_tenth(v)          # one decimal place, halves up (4.4 footnote 1)
 
 
 def rate_airborne(values) -> Rating:
@@ -85,7 +87,7 @@ def rate_impact(values) -> Rating:
 
 def adaptation_term(values, spectrum, rating_value: int) -> int:
     """C_j = X_Aj - X_w with X_Aj = -10 lg sum 10^((L_ij - X_i)/10), rounded to integer."""
-    x = np.round(np.asarray(values, float), 1)
+    x = round_tenth(values)
     x_aj = -10 * np.log10(np.sum(10 ** ((spectrum - x) / 10)))
     return round_half_up(x_aj - rating_value)
 

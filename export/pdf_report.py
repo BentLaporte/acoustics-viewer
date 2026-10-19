@@ -415,13 +415,13 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
             items.append(T.NOTE_INSTALL_INCONCLUSIVE)
         if any(e.check.status == "inconclusive" for e in evs):
             items.append("Niet conclusief: een of meer tersbanden liggen dicht bij het "
-                         "achtergrondgeluiddrukniveau (minder dan 6 dB erboven). Zo'n band wordt "
+                         "achtergrondgeluiddrukniveau (6 dB of minder erboven). Zo'n band wordt "
                          "gecorrigeerd met een vaste 1,3 dB en is slechts een grenswaarde, "
                          "waardoor het luchtgeluidresultaat te laag of het contactgeluidresultaat "
                          "te hoog kan uitvallen. Of aan de eis voldaan is, kan niet met zekerheid "
                          "worden vastgesteld.")
         elif limit and all(e.check.status in ("complies", "fails") for e in limit):
-            items.append("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (minder dan 6 dB "
+            items.append("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (6 dB of minder "
                          "erboven) worden gecorrigeerd met een vaste 1,3 dB en zijn slechts "
                          "grenswaarden; ze hebben het resultaat van de metingen waarin ze "
                          "voorkomen niet be\u00efnvloed.")
@@ -439,7 +439,7 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
         [Paragraph(f"\u2022 {t}", st["small"]) for t in items]
 
 
-_LIMIT_NEUTRAL = ("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (minder dan 6 dB erboven) "
+_LIMIT_NEUTRAL = ("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (6 dB of minder erboven) "
                   "worden gecorrigeerd met een vaste 1,3 dB en zijn slechts grenswaarden "
                   "(gearceerd in de tabellen). Ze kunnen het luchtgeluidresultaat te laag of het "
                   "contactgeluidresultaat te hoog doen uitvallen.")

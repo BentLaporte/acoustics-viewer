@@ -71,6 +71,17 @@ file) and the engineering method ISO 16032.
 
 Open items, in rough order:
 
+00. Report per the standards' "expression of results" / "test report" clauses (Bent has the texts
+   of ISO 717-1/-2:2020, ISO 16283-1:2014, ISO 16283-2:2020, ISO 10052:2021). Done: band values
+   to 0,1 dB half up before rating (717 4.4 fn 1) and background correction thresholds on levels
+   to 0,1 dB (16283 9.2: <= 6 dB limit, 6-10 formula, >= 10 none). To do: name the standards and
+   years, "field measurement, engineering method" (survey for 10052), "from one-third-octave
+   bands"; graphs at 5 mm per 1/3 octave and 20 mm per 10 dB (16283 cl. 12); limit values as
+   "DnT >= ..." / "L'nT <= ..."; test date even with file dates off; organisation name and client
+   address; room volumes (nearest m3); construction / arrangement / impact source text;
+   installation operating conditions and corner position (10052 cl. 8); uncertainty per
+   ISO 12999-1 later (not available). Manual scanning (walking) is a standard method in
+   ISO 16283 7.5, a deviation only for installation noise (10052 6.3.4).
 0. Bent to review the installation noise Dutch wording (`report_text.py`: METHOD_TEXT,
    NOTE_INSTALLATION, note translations) and the viewer dialog.
 1. Excel export of the building comparison (reuse the switches registry).

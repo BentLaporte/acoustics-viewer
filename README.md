@@ -36,9 +36,10 @@ Viewer: `python -m gui` (or `python -m gui --project my_building.json`).
 For a pair of rooms (airborne) or one receiving room (impact), per one-third-octave band
 100 to 3150 Hz, from the whole-file LZeq spectra (energy average over the file):
 
-1. Background noise correction of the receiving room level: no correction if the signal is more than
-   10 dB above the background, subtraction of the background between 6 and 10 dB, and a fixed
-   1.3 dB (the band becomes a *limit value*) below 6 dB.
+1. Background noise correction of the receiving room level (ISO 16283-1/-2 9.2, on levels reduced to
+   one decimal): no correction if the signal is 10 dB or more above the background, subtraction of
+   the background between 6 and 10 dB, and a fixed 1.3 dB (the band becomes a *limit value*) at
+   6 dB or less.
 2. Standardized level difference `DnT = L1 - L2 + 10 lg(T/0.5)` (airborne) or standardized impact
    level `L'nT = Li - 10 lg(T/0.5)` (impact), with T the reverberation time (T30 by default; T20 or
    EDT can be chosen) of the receiving room.

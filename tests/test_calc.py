@@ -27,8 +27,39 @@ def test_background_three_regions():
 
 
 def test_background_boundaries():
-    out, st = background_correction(np.array([60.0, 66.0, 70.0, 70.1]), np.full(4, 60.0))
-    assert st[0] == LIMIT and st[1] == CORRECTED and st[2] == CORRECTED and st[3] == OK
+    # ISO 16283-1/-2 9.2: <= 6 dB -> 1,3 dB (limit); 6 < delta < 10 -> formula; >= 10 -> none
+    l_sb = np.array([60.0, 66.0, 66.1, 69.9, 70.0, 70.1])
+    out, st = background_correction(l_sb, np.full(6, 60.0))
+    assert list(st) == [LIMIT, LIMIT, CORRECTED, CORRECTED, OK, OK]
+    assert out[1] == pytest.approx(66.0 - 1.3)
+    assert out[4] == 70.0                                    # exactly 10 dB: not corrected
+
+
+def test_background_compares_levels_reduced_to_one_decimal():
+    # 54.35 -> 54.4 and 48.34 -> 48.3: 6.1 dB, so the formula, not the 1,3 dB limit
+    out, st = background_correction(np.array([54.35]), np.array([48.34]))
+    assert st[0] == CORRECTED
+    assert out[0] == pytest.approx(10 * np.log10(10 ** 5.44 - 10 ** 4.83))
+    # 54.34 -> 54.3: exactly 6.0 dB after rounding -> limit (floating point must not spoil it)
+    _, st = background_correction(np.array([54.34]), np.array([48.3]))
+    assert st[0] == LIMIT
+
+
+def test_round_tenth_is_half_up():
+    from calc.levels import round_tenth
+    # numpy would give 22.4 (half to even) for 22.45 and 44.3 for 44.35 (binary 44.3499...)
+    assert list(round_tenth([22.45, 44.35, 30.04, 30.05, 61.25])) == [22.5, 44.4, 30.0, 30.1, 61.3]
+
+
+def test_rating_uses_half_up_band_values():
+    # Two bands below the curve, all others far above it. 500 Hz = 36,25 -> 36,3 (half up;
+    # numpy's half-to-even would give 36,2) and 630 Hz = 36,7. At shift 0 the deviations are
+    # (52 - 36,3) + (53 - 36,7) = 32,0 dB: allowed, so DnT,w = 52. With 36,2 the sum would be
+    # 32,1 dB and the rating one lower (51).
+    values = np.full(16, 100.0)
+    values[7], values[8] = 36.25, 36.7
+    r = rate_airborne(values)
+    assert r.value == 52 and r.unfavourable_sum == pytest.approx(32.0)
 
 
 def test_dnt_and_lnt_reference_time():

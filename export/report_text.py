@@ -136,7 +136,7 @@ DETAIL_SHIFT = ("Referentiecurve verschoven {shift} dB; som van de ongunstige af
 DETAIL_REQUIREMENT = "Eis {basis} {requirement}"
 DETAIL_CORRECTION = ("Correctie = correctie voor het achtergrondgeluiddrukniveau, toegepast op het geluiddrukniveau "
                      "in de ontvangstruimte.")
-DETAIL_LIMIT = ("* Band minder dan 6 dB boven het achtergrondgeluiddrukniveau: gecorrigeerd met een vaste "
+DETAIL_LIMIT = ("* Band 6 dB of minder boven het achtergrondgeluiddrukniveau: gecorrigeerd met een vaste "
                 "1,3 dB en slechts een grenswaarde (gearceerd).")
 AIRBORNE_HEAD = ["Band\n[Hz]", "L1\n[dB]", "L2\ngemeten", "Lb\n[dB]", "L2\ngecorr.",
                  "Correc-\ntie [dB]", "T [s]", "D\n[dB]", "DnT\n[dB]", "Ref.-\ncurve",
