@@ -553,6 +553,7 @@ def test_limit_bands_note_only_claims_no_effect_when_the_check_is_reliable(tmp_p
 def _fake(status, requirement, n_limit=2, kind="airborne"):
     from types import SimpleNamespace as NS
     return NS(kind=kind, ok=True, requirement=requirement, check=NS(status=status),
+              uncertainty=None, tolerance=0,
               result=NS(n_limit=n_limit, names={"receiver": ["B.SVL"], "background": ["C.SVL"]}))
 
 

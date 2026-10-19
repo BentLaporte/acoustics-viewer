@@ -136,7 +136,7 @@ def format_measurement_csv(ev: Evaluated) -> str:
 
 
 def _counts(evs) -> dict:
-    c = {"complies": 0, "fails": 0, "inconclusive": 0, "no_result": 0, "none": 0}
+    c = {"complies": 0, "tolerance": 0, "fails": 0, "inconclusive": 0, "no_result": 0, "none": 0}
     for e in evs:
         c[e.check.status] += 1
     c["errors"] = sum(1 for e in evs if not e.ok)
@@ -148,6 +148,7 @@ def building_to_dict(project, evs) -> dict:
             "reverberation_time_used": project.rt_kind,
             "airborne_basis": AIRBORNE_BASES[project.airborne_basis],
             "impact_basis": IMPACT_BASES[project.impact_basis],
+            "nbn_tolerance": project.nbn_tolerance,
             "summary": _counts(evs),
             "equipment": [{"instrument": t, "serial": s, "used_for": list(roles)}
                           for t, s, roles in equipment_used(evs)],
@@ -177,7 +178,9 @@ def format_building_text(project, evs) -> str:
     for r in rows:
         out.append("  ".join(str(r[i]).ljust(widths[i]) for i in range(len(widths))) + "  " + r[-1])
     c = _counts(evs)
-    out += ["", f"{len(evs)} measurement(s): {c['complies']} comply, {c['fails']} do not comply, "
+    within = f" ({c['tolerance']} within the NBN tolerance)" if c["tolerance"] else ""
+    out += ["", f"{len(evs)} measurement(s): {c['complies'] + c['tolerance']} comply{within}, "
+                f"{c['fails']} do not comply, "
                 f"{c['inconclusive']} not conclusive, {c['none']} without requirement, "
                 f"{c['errors']} with errors"]
     for e in evs:

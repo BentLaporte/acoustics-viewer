@@ -69,8 +69,10 @@ def test_dialog_result_and_window(app, settings):
     assert dlg.table.item(0, 1).text() == "2-8 s" and dlg.table.item(0, 2).text() == "6 s"
     dlg.quantity.setCurrentIndex(dlg.quantity.findData("lafmax"))
     assert dlg.requirement.label.text() == f"LAFmax,nT {LE}"
-    # LAFmax of seconds 2-8 is 45.94; 45.94 - 0.47 = 45.47 -> 45 dB, above the 44 dB required
-    assert "LAFmax,nT = 45 dB" in dlg.result.text() and "Does not comply" in dlg.result.text()
+    # LAFmax of seconds 2-8 is 45.94; 45.94 - 0.47 = 45.47 -> 45 dB, 1 dB above the 44 dB
+    # required: within the 1 dB tolerance of NBN S 01-400-1 8.4
+    assert "LAFmax,nT = 45 dB" in dlg.result.text()
+    assert "Complies within tolerance" in dlg.result.text()
     s = dlg.situation()
     assert (s.quantity, s.requirement, s.recordings) == ("lafmax", 44, [Recording(L22, 2, 8)])
 

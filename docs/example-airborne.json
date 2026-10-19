@@ -25,7 +25,14 @@
     "value_db": 54,
     "assessed_value_db": 55,
     "check": "complies",
-    "margin_db": 1
+    "margin_db": 1,
+    "tolerance_db": 0
+  },
+  "uncertainty": {
+    "compared_quantity": "DnT,w",
+    "expanded_db": 0.9,
+    "coverage_factor": 1.0,
+    "situation": "B"
   },
   "files": {
     "source": [

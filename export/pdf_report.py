@@ -45,9 +45,11 @@ PAGE = A4
 MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18 * mm, 16 * mm, 20 * mm
 FRAME_W = PAGE[0] - 2 * MARGIN_X                       # 174 mm
 FONT, FONT_B = "DejaVu", "DejaVu-Bold"
-CHECK_BG = {"complies": "#d5f5e3", "fails": "#f5b7b1", "inconclusive": "#fdebd0",
-            "no_result": "#eaecee", "none": None}
-CHECK_FG = {"complies": "#1e8449", "fails": "#c0392b", "inconclusive": "#b9770e"}
+# 'tolerance' (complies only within the NBN tolerance) is a paler, more olive green than a clean pass
+CHECK_BG = {"complies": "#d5f5e3", "tolerance": "#eef6d5", "fails": "#f5b7b1",
+            "inconclusive": "#fdebd0", "no_result": "#eaecee", "none": None}
+CHECK_FG = {"complies": "#1e8449", "tolerance": "#6b8e23", "fails": "#c0392b",
+            "inconclusive": "#b9770e"}
 LIMIT_BG = "#fdebd0"
 HEAD_BG = "#2c3e50"
 BARS_PER_CHART = 10
@@ -309,7 +311,7 @@ def _overview_table(evs: list, kind: str, project: Project, options: ReportOptio
 
 
 def _counts(evs) -> dict:
-    c = {"complies": 0, "fails": 0, "inconclusive": 0, "no_result": 0, "none": 0}
+    c = {"complies": 0, "tolerance": 0, "fails": 0, "inconclusive": 0, "no_result": 0, "none": 0}
     for e in evs:
         c[e.check.status] += 1
     return c
@@ -409,8 +411,10 @@ def _summary(evs: list, options: ReportOptions, st: dict) -> list:
             def verb(n, one, many):
                 return one if n == 1 else many
 
-            bits = [f"<font color='{CHECK_FG['complies']}'><b>{c['complies']} "
-                    f"{verb(c['complies'], 'voldoet', 'voldoen')}</b></font>",
+            passed = c["complies"] + c["tolerance"]
+            within = f" (waarvan {c['tolerance']} binnen de tolerantie)" if c["tolerance"] else ""
+            bits = [f"<font color='{CHECK_FG['complies']}'><b>{passed} "
+                    f"{verb(passed, 'voldoet', 'voldoen')}</b></font>{within}",
                     f"<font color='{CHECK_FG['fails']}'><b>{c['fails']} "
                     f"{verb(c['fails'], 'voldoet niet', 'voldoen niet')}</b></font>"]
             if c["inconclusive"]:
@@ -458,6 +462,14 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
                                                   for e in installation):
             items.append(T.NOTE_INTEGRATED)
     evs = [e for e in evs if e.kind != "installation"]      # the notes below: insulation only
+    checked = [e for e in evs + installation if e.requirement is not None]
+    nbn = any(e.tolerance for e in checked)
+    if options.requirements and nbn:
+        items.append(mk(T.NOTE_TOLERANCE))
+    if options.uncertainty and any(e.uncertainty is not None for e in evs):
+        items.append(T.NOTE_UNCERTAINTY)
+        if options.requirements and checked:
+            items.append(T.NOTE_UNCERTAINTY_CHECK_NBN if nbn else T.NOTE_UNCERTAINTY_CHECK)
     limit = [e for e in evs if e.ok and e.result.n_limit]
     if options.requirements:
         if any(e.requirement is not None for e in evs):
@@ -475,7 +487,7 @@ def _notes(evs: list, project: Project, options: ReportOptions, st: dict) -> lis
                          "waardoor het luchtgeluidresultaat te laag of het contactgeluidresultaat "
                          "te hoog kan uitvallen. Of aan de eis voldaan is, kan niet met zekerheid "
                          "worden vastgesteld.")
-        elif limit and all(e.check.status in ("complies", "fails") for e in limit):
+        elif limit and all(e.check.status in ("complies", "tolerance", "fails") for e in limit):
             items.append("Banden die dicht bij het achtergrondgeluiddrukniveau liggen (6 dB of minder "
                          "erboven) worden gecorrigeerd met een vaste 1,3 dB en zijn slechts "
                          "grenswaarden; ze hebben het resultaat van de metingen waarin ze "
@@ -739,7 +751,8 @@ def _file_lines(ev: Evaluated, st: dict, dates: bool = True) -> list:
         roles = list(ev.result.names)
     rows = [[Paragraph(f"<b>{ROLE_TEXT[k]}</b>", st["small"]),
              Paragraph(_file_text(ev, k, dates), st["small"])] for k in roles]
-    t = Table(rows, colWidths=[62 * mm, FRAME_W - 62 * mm])
+    # wide enough for 'Contactgeluiddrukniveaus ontvangstruimte' on one line
+    t = Table(rows, colWidths=[72 * mm, FRAME_W - 72 * mm])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
                            ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
@@ -778,6 +791,10 @@ def _result_box(ev: Evaluated, color: str, left: list, options: ReportOptions, s
         right = [Paragraph(mk(T.DETAIL_REQUIREMENT.format(basis=ev.basis_label,
                                                            requirement=_requirement_text(ev))),
                            st["cellbox"]), cell]            # space: the subscripts need it
+        if ev.tolerance:                                     # NBN S 01-400 in-situ tolerance
+            small = T.DETAIL_TOLERANCE_SMALL if ev.small_room else ""
+            right.append(Paragraph(mk(T.DETAIL_TOLERANCE.format(tol=ev.tolerance) + small),
+                                   st["cellc"]))
         box = Table([[left, right]], colWidths=[FRAME_W * 0.66, FRAME_W * 0.34])
         if CHECK_BG[chk.status]:
             style.append(("BACKGROUND", (1, 0), (1, 0), rl.HexColor(CHECK_BG[chk.status])))
@@ -892,6 +909,10 @@ def _detail_page(ev: Evaluated, color: str, project: Project, options: ReportOpt
     if detail:
         left.append(Paragraph(detail, st["small"]))
     left.append(Paragraph(mk(T.DETAIL_EVALUATION[ev.kind]), st["small"]))   # 16283 clause 14
+    if options.uncertainty and ev.uncertainty is not None:                    # ISO 12999-1
+        left.append(Paragraph(mk(T.DETAIL_UNCERTAINTY.format(
+            quantity=ev.basis_label, value=minus(ev.assessed), u=num(ev.uncertainty))),
+            st["small"]))
     story.append(_result_box(ev, color, left, options, st))
     # the room photos sit next to the chart, under its legend (not in a strip above it)
     story += [Spacer(1, 3 * mm), _chart_with_photos(ev, project, cache, st), Spacer(1, 2 * mm)]

@@ -34,6 +34,26 @@ class RoomDialog(QtWidgets.QDialog):
         self.name = QtWidgets.QLineEdit(room.name if room else "")
         self.name.setPlaceholderText("e.g. Living room 2.01")
         form.addRow("Name:", self.name)
+        # volume and bedroom decide the NBN S 01-400 in-situ tolerance (calc/nbn.py)
+        self.volume = QtWidgets.QDoubleSpinBox()
+        self.volume.setRange(0, 100000)
+        self.volume.setDecimals(1)
+        self.volume.setSuffix(" m\u00b3")
+        self.volume.setSpecialValueText("unknown")          # 0 shows as 'unknown'
+        self.volume.setValue(room.volume if room and room.volume else 0)
+        self.bedroom = QtWidgets.QCheckBox("Bedroom")
+        self.bedroom.setChecked(bool(room and room.bedroom))
+        vrow = QtWidgets.QHBoxLayout()
+        vrow.addWidget(self.volume)
+        vrow.addWidget(self.bedroom)
+        vrow.addStretch(1)
+        form.addRow("Volume:", vrow)
+        hint = QtWidgets.QLabel("Receiving rooms under 25 m\u00b3 that are not bedrooms get the "
+                                "larger NBN tolerance (4 dB instead of 2 dB; installation noise "
+                                "3 dB instead of 1 dB). Unknown volume: the normal tolerance.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666666;")
+        form.addRow("", hint)
         lay.addLayout(form)
         self.rt = FileRow("Reverberation time", settings)
         self.rt.set_paths(room.rt_files if room else [], notify=False)
@@ -166,7 +186,8 @@ class RoomDialog(QtWidgets.QDialog):
                         self.photos.item(i).data(QtCore.Qt.UserRole + 1))
                   for i in range(self.photos.count())]
         return Room(self.name.text().strip(), self.rt.paths(),
-                    self.bg.paths() if self.own_bg.isChecked() else [], photos)
+                    self.bg.paths() if self.own_bg.isChecked() else [], photos,
+                    self.volume.value() or None, self.bedroom.isChecked())
 
 
 class RoomCombo(QtWidgets.QWidget):

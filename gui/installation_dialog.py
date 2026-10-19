@@ -391,7 +391,8 @@ class InstallationDialog(QtWidgets.QDialog):
         text += ")" if r.background is None else f", background LAeq {r.background:.1f} dB)"
         chk = ev.check
         if chk.status != "none":
-            color = {"complies": "#1e8449", "fails": "#c0392b"}.get(chk.status, "#b9770e")
+            color = {"complies": "#1e8449", "tolerance": "#6b8e23",
+                     "fails": "#c0392b"}.get(chk.status, "#b9770e")
             text += (f" &nbsp; <b style='color:{color}'>{chk.text}</b> "
                      f"({LE} {ev.requirement} dB)")
         if ev.notes:

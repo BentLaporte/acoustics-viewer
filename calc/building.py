@@ -27,6 +27,8 @@ import numpy as np
 from .airborne import AirborneResult, compute_airborne
 from .impact import ImpactResult, compute_impact
 from .installation import QUANTITIES, InstallationResult, Recording, compute_installation
+from .iso12999 import expanded_uncertainty
+from .nbn import in_situ_tolerance, is_small_room
 
 SCHEMA_VERSION = 2          # 2: measurements have a comment instead of a stored name
 KINDS = ("airborne", "impact", "installation")
@@ -70,6 +72,8 @@ class Room:
     rt_files: list[str] = field(default_factory=list)
     background_files: list[str] = field(default_factory=list)   # empty = building background
     photos: list[Photo] = field(default_factory=list)           # first photo = main picture
+    volume: float | None = None         # m3; decides the NBN tolerance (< 25 m3) and the report
+    bedroom: bool = False               # a bedroom never gets the larger small-room tolerance
 
 
 @dataclass
@@ -137,6 +141,7 @@ class Project:
     rt_kind: str = "t30"
     airborne_basis: str = "w"       # what airborne requirements are checked against
     impact_basis: str = "w"         # what impact requirements are checked against
+    nbn_tolerance: bool = True      # check with the in-situ tolerance of NBN S 01-400 (calc.nbn)
     rooms: list[Room] = field(default_factory=list)
     airborne: list[AirborneSituation] = field(default_factory=list)
     impact: list[ImpactSituation] = field(default_factory=list)
@@ -181,13 +186,20 @@ class Project:
 @dataclass
 class Check:
     """Outcome of comparing a measurement with its requirement."""
-    status: str                    # none | no_result | complies | fails | inconclusive
+    # none | no_result | complies | tolerance | fails | inconclusive
+    # 'tolerance' = complies only thanks to the in-situ tolerance of NBN S 01-400 (calc.nbn)
+    status: str
     margin: int | None = None      # dB, positive = better than required
 
     @property
     def text(self) -> str:
         return {"none": "", "no_result": "no result", "complies": "Complies",
-                "fails": "Does not comply", "inconclusive": "Not conclusive"}[self.status]
+                "tolerance": "Complies within tolerance", "fails": "Does not comply",
+                "inconclusive": "Not conclusive"}[self.status]
+
+    @property
+    def passed(self) -> bool:
+        return self.status in ("complies", "tolerance")
 
 
 @dataclass
@@ -201,6 +213,8 @@ class Evaluated:
     comment: str = ""
     requirement: int | None = None
     basis: str = "w"               # installation: the quantity, 'laeq' | 'lafmax'
+    tolerance: int = 0             # dB, in-situ tolerance of NBN S 01-400 (0 = strict check)
+    small_room: bool = False       # the larger tolerance for rooms < 25 m3 applied
 
     @property
     def label(self) -> str:
@@ -238,6 +252,14 @@ class Evaluated:
             return w + {"w": 0, "wc": r.c, "wctr": r.ctr}[self.basis]
         return w + (r.ci if self.basis == "wci" else 0)
 
+    @property
+    def uncertainty(self) -> float | None:
+        """Expanded uncertainty U of the assessed value (ISO 12999-1, see calc.iso12999);
+        None for installation noise and when there is no result."""
+        if self.assessed is None:
+            return None
+        return expanded_uncertainty(self.kind, self.basis)
+
     def _limit_matters(self) -> bool:
         """Could bands that are only a limit value (close to the background) change the
         assessed value? Pass results are always safe (airborne DnT can only be higher, impact
@@ -264,6 +286,10 @@ class Evaluated:
             else self.requirement - value
         if margin >= 0:
             return Check("complies", margin)
+        # within the NBN tolerance it still complies; like any pass this is reliable, because
+        # limit-value bands and background noise can only make the true result better
+        if margin >= -self.tolerance:
+            return Check("tolerance", margin)
         if self.kind == "installation":              # background noise can only add sound
             return Check("inconclusive" if self.result.background_affected else "fails", margin)
         return Check("inconclusive" if self._limit_matters() else "fails", margin)
@@ -323,6 +349,14 @@ def installation_notes(r: InstallationResult) -> list[str]:
     return notes
 
 
+def _tolerance(project: Project, kind: str, recv: Room) -> dict:
+    """Evaluated fields for the NBN in-situ tolerance of this receiving room ({} = strict)."""
+    if not project.nbn_tolerance:
+        return {}
+    return {"tolerance": in_situ_tolerance(kind, recv.volume, recv.bedroom),
+            "small_room": is_small_room(recv.volume, recv.bedroom)}
+
+
 def _need(files, what: str):
     if not files:
         raise ValueError(f"no {what}")
@@ -344,7 +378,7 @@ def _evaluate_airborne(project: Project, s: AirborneSituation, name: str) -> Eva
                                project.rt_kind)
         return Evaluated("airborne", name, s.source_room, s.receiver_room, res,
                          comment=s.comment, requirement=s.requirement,
-                         basis=project.airborne_basis)
+                         basis=project.airborne_basis, **_tolerance(project, "airborne", recv))
     except Exception as exc:                         # one bad measurement must not stop the rest
         return Evaluated("airborne", name, s.source_room, s.receiver_room, None,
                          _error_text(exc), s.comment, s.requirement, project.airborne_basis)
@@ -362,7 +396,7 @@ def _evaluate_impact(project: Project, s: ImpactSituation, name: str) -> Evaluat
         res = compute_impact(s.tapping_files, bg, recv.rt_files, project.rt_kind)
         return Evaluated("impact", name, s.tapping_room, s.receiver_room, res,
                          comment=s.comment, requirement=s.requirement,
-                         basis=project.impact_basis)
+                         basis=project.impact_basis, **_tolerance(project, "impact", recv))
     except Exception as exc:
         return Evaluated("impact", name, s.tapping_room, s.receiver_room, None,
                          _error_text(exc), s.comment, s.requirement, project.impact_basis)
@@ -380,7 +414,8 @@ def _evaluate_installation(project: Project, s: InstallationSituation, name: str
         bg = project.background_for(recv) or None      # a check only, so it may be missing
         res = compute_installation(s.recordings, recv.rt_files, bg, s.quantity, s.method)
         return Evaluated("installation", name, s.source_room, s.receiver_room, res,
-                         comment=s.comment, requirement=s.requirement, basis=s.quantity)
+                         comment=s.comment, requirement=s.requirement, basis=s.quantity,
+                         **_tolerance(project, "installation", recv))
     except Exception as exc:
         return Evaluated("installation", name, s.source_room, s.receiver_room, None,
                          _error_text(exc), s.comment, s.requirement, s.quantity)
@@ -464,9 +499,11 @@ def project_to_dict(project: Project, base: Path) -> dict:
         **({"report_options": dict(project.report_options)} if project.report_options else {}),
         "airborne_basis": project.airborne_basis,
         "impact_basis": project.impact_basis,
+        "nbn_tolerance": project.nbn_tolerance,
         "background_files": _rel(project.background_files, base),
         "rooms": [{"name": r.name, "rt_files": _rel(r.rt_files, base),
                    "background_files": _rel(r.background_files, base),
+                   "volume_m3": r.volume, "bedroom": r.bedroom,
                    "photos": [{"path": _rel([ph.path], base)[0], "caption": ph.caption}
                               for ph in r.photos]}
                   for r in project.rooms],
@@ -498,6 +535,15 @@ def _recordings_from_list(items, base: Path) -> list[Recording]:
                       None if x.get("end_s") is None else int(x["end_s"])) for x in items]
 
 
+def _volume(value) -> float | None:
+    """A stored room volume: a positive number in m3, anything else is 'unknown'."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def _legacy_comment(name: str) -> str:
     """Schema 1 stored a free name; a trailing '(...)' in it becomes the comment."""
     m = re.search(r"\(([^()]*)\)\s*$", name or "")
@@ -520,11 +566,15 @@ def project_from_dict(d: dict, base: Path) -> Project:
         rt_kind=d.get("rt_kind", "t30"),
         airborne_basis=basis("airborne_basis", AIRBORNE_BASES),
         impact_basis=basis("impact_basis", IMPACT_BASES),
+        # added within schema 2: files without it get the tolerance (the Belgian rule)
+        nbn_tolerance=bool(d.get("nbn_tolerance", True)),
         background_files=_abs(d.get("background_files", []), base),
         rooms=[Room(r["name"], _abs(r.get("rt_files", []), base),
                     _abs(r.get("background_files", []), base),
                     [Photo(_abs([ph["path"]], base)[0], ph.get("caption", ""))
-                     for ph in r.get("photos", [])]) for r in d.get("rooms", [])],
+                     for ph in r.get("photos", [])],
+                    _volume(r.get("volume_m3")), bool(r.get("bedroom", False)))
+               for r in d.get("rooms", [])],
         airborne=[AirborneSituation(s["source_room"], s["receiver_room"],
                                     _abs(s.get("source_files", []), base),
                                     _abs(s.get("receiver_files", []), base), comment(s),

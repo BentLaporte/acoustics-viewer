@@ -75,6 +75,28 @@ DETAIL_EVALUATION = {
     "impact": "Beoordeling volgens ISO 717-2:2020 op basis van tertsbandwaarden van een "
               "veldmeting volgens ISO 16283-2:2020 (ingenieursmethode, hamerklopmachine).",
 }
+# measurement uncertainty, ISO 12999-1:2020 (calc/iso12999.py): situation B, k = 1
+DETAIL_UNCERTAINTY = "{quantity} = {value} \u00b1 {u} dB (k = 1; ISO 12999-1:2020, situatie B)."
+NOTE_UNCERTAINTY = (
+    "De meetonzekerheid U is de uitgebreide meetonzekerheid van de getoetste waarde volgens "
+    "ISO 12999-1:2020, situatie B (metingen in hetzelfde gebouw door verschillende meetploegen, "
+    "tabel 3 en 5), met dekkingsfactor k = 1 (betrouwbaarheid 68 % tweezijdig, 84 % eenzijdig). "
+    "Deze waarden gelden niet voor ontvangstruimten kleiner dan 25 m\u00b3. Voor "
+    "installatiegeluid geeft ISO 12999-1 geen meetonzekerheid.")
+NOTE_UNCERTAINTY_CHECK = ("De toetsing aan de eis gebeurt op de gemeten waarde, zonder de "
+                          "meetonzekerheid te verrekenen.")
+NOTE_UNCERTAINTY_CHECK_NBN = ("De toetsing aan de eis gebeurt op de gemeten waarde met de "
+                              "tolerantie van NBN S 01-400-1; de meetonzekerheid wordt daarbij "
+                              "niet apart verrekend.")
+# in-situ tolerance, NBN S 01-400-1:2022 5.4, 6.4 and 8.4 (calc/nbn.py)
+NOTE_TOLERANCE = (
+    "Toetsing volgens NBN S 01-400-1:2022 (5.4, 6.4 en 8.4): een in situ gemeten resultaat, "
+    "afgerond op 1 dB, voldoet ook als het hoogstens 2 dB slechter is dan de eis "
+    "(installatiegeluid: 1 dB). Voor ontvangstruimten kleiner dan 25 m\u00b3, uitgezonderd "
+    "slaapkamers, is dat 4 dB (installatiegeluid: 3 dB). Zulke resultaten zijn aangeduid als "
+    "'voldoet binnen tolerantie'.")
+DETAIL_TOLERANCE = "tolerantie {tol} dB"
+DETAIL_TOLERANCE_SMALL = " (ruimte < 25 m\u00b3)"
 FACT_BASIS = "Eisen getoetst aan"
 REMARKS = "Opmerkingen"
 SECTION_AIRBORNE, SECTION_IMPACT = "Luchtgeluidisolatie", "Contactgeluiddrukniveau"
@@ -108,6 +130,7 @@ COL_CHECK = "Toetsing"
 COL_REMARKS = "Opmerkingen"
 
 CHECK_TEXT = {"none": "", "no_result": "geen resultaat", "complies": "Voldoet",
+              "tolerance": "Voldoet binnen tolerantie",
               "fails": "Voldoet niet", "inconclusive": "Niet conclusief"}
 RT_TEXT = {"t30": "T30 (RT30)", "t20": "T20 (RT20)", "edt": "EDT"}
 

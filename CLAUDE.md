@@ -42,6 +42,15 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
   arithmetic mean of the three thirds; per band T30, else T20 (say so in output); the
   integrated (walking) method is allowed and marked as a deviation from 6.3.4. Our choice:
   background check of LAFmax against the background LAeq. ISO 16032 not available yet.
+* Verdict = NBN S 01-400-1:2022 in-situ tolerance (5.4, 6.4, 8.4; `calc/nbn.py`): airborne and
+  impact 2 dB, installation 1 dB; 4 / 3 dB for receiving rooms < 25 m3 that are not bedrooms;
+  unknown volume = normal tolerance. A pass only thanks to the tolerance is its own status
+  `tolerance` ("Voldoet binnen tolerantie", olive green). Project switch `nbn_tolerance`
+  (default on); rooms carry `volume` and `bedroom`. Single-measurement CLI commands are strict.
+  NBN S 01-400-3:2026 has the same numbers; the schools draft (-2) is not implemented.
+* Measurement uncertainty ISO 12999-1:2020 (`calc/iso12999.py`): situation B, k = 1 (Bent's
+  choice), U of the compared value, shown in the report (switch `uncertainty`), NOT used in the
+  verdict (the NBN tolerance is the Belgian decision rule). None for installation noise.
 * Dutch wording lives only in `export/report_text.py`. Bent's terms: hamerklopmachine (tapping
   machine), bronruimte (source room, also for impact), ontvangstruimte (receiving room, also for
   impact), tertsband, achtergrondgeluiddrukniveau, geluiddrukniveaus.
@@ -64,7 +73,11 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 272 passed, 1 skipped.
+Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 281 passed, 1 skipped.
+Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
+and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
+may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for
+a tonal character; our settled choice is no correction.
 
 Parked by Bent: transient installations (no sample yet; LAFmax only checked on a stationary
 file) and the engineering method ISO 16032.

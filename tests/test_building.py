@@ -214,6 +214,14 @@ def test_requirement_check_airborne_and_impact():
     ea, ei = evaluate_project(p)
     assert (ea.check.status, ea.check.margin) == ("complies", 0)
     assert (ei.check.status, ei.check.margin) == ("complies", 0)
+    a.requirement, i.requirement = 55, 43                 # 1 dB short: NBN tolerance 2 dB
+    ea, ei = evaluate_project(p)
+    assert (ea.check.status, ea.check.margin, ea.check.text) ==         ("tolerance", -1, "Complies within tolerance")
+    assert (ei.check.status, ei.check.margin) == ("tolerance", -1)
+    a.requirement, i.requirement = 57, 41                 # 3 dB short: beyond the tolerance
+    ea, ei = evaluate_project(p)
+    assert (ea.check.status, ei.check.status) == ("fails", "fails")
+    p.nbn_tolerance = False                               # strict check
     a.requirement, i.requirement = 55, 43
     ea, ei = evaluate_project(p)
     assert (ea.check.status, ea.check.margin, ea.check.text) == ("fails", -1, "Does not comply")
@@ -254,6 +262,7 @@ def test_limit_bands_make_a_failure_inconclusive_only_when_they_matter(tmp_path)
 
     # airborne: 3150 Hz is far above the curve, so a limit value there cannot change the rating
     p = basic_project()
+    p.nbn_tolerance = False                                   # strict: the limit logic itself
     p.airborne[0].requirement = 60                              # not met (54)
     p.rooms[1].background_files = [str(loud_3150)]
     e = evaluate_project(p)[0]
@@ -266,12 +275,14 @@ def test_limit_bands_make_a_failure_inconclusive_only_when_they_matter(tmp_path)
     assert evaluate_project(p)[0].check.status == "complies"
     # many limit bands, including ones below the curve -> failure is not conclusive
     p2 = basic_project()
+    p2.nbn_tolerance = False                                   # strict: the limit logic itself
     p2.airborne[0].requirement = 60
     p2.rooms[1].background_files = [str(loud_all)]
     assert evaluate_project(p2)[0].check.status == "inconclusive"
 
     # impact: 3150 Hz is outside the C_I range and far below the curve
     p3 = basic_project()
+    p3.nbn_tolerance = False                                   # strict: the limit logic itself
     p3.impact[0].requirement = 40                               # not met (44)
     p3.rooms[1].background_files = [str(loud_3150)]
     assert evaluate_project(p3)[1].check.status == "fails"          # [1]: impact follows airborne
@@ -279,6 +290,7 @@ def test_limit_bands_make_a_failure_inconclusive_only_when_they_matter(tmp_path)
     p3.impact[0].requirement = 39
     assert evaluate_project(p3)[1].check.status == "fails"
     p4 = basic_project()
+    p4.nbn_tolerance = False                                   # strict: the limit logic itself
     p4.impact[0].requirement = 40
     p4.rooms[1].background_files = [str(loud_all)]              # 100-2500 Hz affected too
     assert evaluate_project(p4)[1].check.status == "inconclusive"

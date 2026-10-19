@@ -47,6 +47,9 @@ TOGGLES: tuple[Toggle, ...] = (
            tip="Installation noise measured with a moving microphone instead of one position "
                "close to the corner and two in the reverberant field (ISO 10052, 6.3.4). When "
                "off, the remark is left out of the tables, the measurement pages and the notes."),
+    Toggle("uncertainty", "Measurement uncertainty (ISO 12999-1)", "Results",
+           tip="Expanded uncertainty U of DnT,w / L'nT,w (situation B, k = 1) on the "
+               "measurement pages and in the notes. Installation noise has none."),
     Toggle("summary", "Summary sentence on the first page", "Sections"),
     Toggle("remarks", "Remarks (free text on the first page)", "Sections"),
     Toggle("equipment", "Equipment list", "Sections"),
@@ -66,6 +69,7 @@ class ReportOptions:
     term_ctr: bool = True
     term_ci: bool = True
     integrated_method_note: bool = True    # installation noise: the 'integrated method' remark
+    uncertainty: bool = True               # ISO 12999-1 expanded uncertainty
     summary: bool = True
     remarks: bool = True
     equipment: bool = True

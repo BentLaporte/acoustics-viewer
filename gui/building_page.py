@@ -22,9 +22,10 @@ from .thumbs import thumbnail
 from .widgets import FileRow, N_BANDS, band_axis, minus, num, pen
 
 ROW_ERROR, ROW_WARN = "#f5b7b1", "#fdebd0"
-CHECK_BG = {"complies": "#d5f5e3", "fails": "#f5b7b1", "inconclusive": "#fdebd0",
-            "no_result": "#eaecee", "none": None}
-CHECK_FG = {"complies": "#1e8449", "fails": "#c0392b", "inconclusive": "#b9770e"}
+CHECK_BG = {"complies": "#d5f5e3", "tolerance": "#eef6d5", "fails": "#f5b7b1",
+            "inconclusive": "#fdebd0", "no_result": "#eaecee", "none": None}
+CHECK_FG = {"complies": "#1e8449", "tolerance": "#6b8e23", "fails": "#c0392b",
+            "inconclusive": "#b9770e"}
 
 
 def _cell(text, align=QtCore.Qt.AlignCenter, bg=None):
@@ -232,13 +233,23 @@ class BuildingPage(QtWidgets.QWidget):
         self.imp_basis.currentIndexChanged.connect(self.basis_changed)
         br.addWidget(self.air_basis)
         br.addWidget(self.imp_basis)
+        # NBN S 01-400 in situ: a result may be 2 dB (installation 1 dB) worse than required
+        self.nbn_tolerance = QtWidgets.QCheckBox("with NBN tolerance")
+        self.nbn_tolerance.setToolTip(
+            "NBN S 01-400-1:2022 5.4, 6.4, 8.4: a measured result complies when it is at most "
+            "2 dB worse than the requirement (installation noise 1 dB); 4 dB (3 dB) for "
+            "receiving rooms under 25 m3 that are not bedrooms. Such results are shown as "
+            "'complies within tolerance'. Off: strict check.")
+        self.nbn_tolerance.toggled.connect(self.tolerance_changed)
+        br.addWidget(self.nbn_tolerance)
         br.addStretch(1)
         form.addLayout(br)
         lay.addWidget(box)
 
         rooms_box = QtWidgets.QGroupBox("Rooms (source and receiving rooms)")
         rl = QtWidgets.QVBoxLayout(rooms_box)
-        self.rooms_table = _table(["Room", "Reverberation time", "Background", "Photos"],
+        self.rooms_table = _table(["Room", "Reverberation time", "Background", "Photos",
+                                   "Volume"],
                                   stretch_col=1)
         self.rooms_table.doubleClicked.connect(self.edit_room)
         rl.addWidget(self.rooms_table)
@@ -360,6 +371,9 @@ class BuildingPage(QtWidgets.QWidget):
             combo.blockSignals(True)
             combo.setCurrentIndex(max(0, combo.findData(value)))
             combo.blockSignals(False)
+        self.nbn_tolerance.blockSignals(True)
+        self.nbn_tolerance.setChecked(p.nbn_tolerance)
+        self.nbn_tolerance.blockSignals(False)
 
         t = self.rooms_table
         t.setRowCount(len(p.rooms))
@@ -375,6 +389,8 @@ class BuildingPage(QtWidgets.QWidget):
                     photos.setIcon(QtGui.QIcon(pix))
                 photos.setToolTip("\n".join(Path(ph.path).name for ph in r.photos))
             t.setItem(i, 3, photos)
+            vol = "-" if r.volume is None else f"{r.volume:g} m\u00b3"
+            t.setItem(i, 4, _cell(vol + (", bedroom" if r.bedroom else "")))
         m = self.meas_table
         names = p.situation_names()
         reqs = [self.requirement_text(x.kind, x.requirement) for x in p.all_situations()]
@@ -416,6 +432,11 @@ class BuildingPage(QtWidgets.QWidget):
         self.populate_setup()                     # the requirement column names the basis
         self.refresh()
 
+    def tolerance_changed(self, on: bool):
+        self.project.nbn_tolerance = on
+        self.mark_dirty()
+        self.refresh()                            # the checks change
+
     def rt_kind_changed(self):
         self.project.rt_kind = self.rt_kind.currentData()
         self.mark_dirty()
@@ -437,13 +458,15 @@ class BuildingPage(QtWidgets.QWidget):
             text += f", {warn} with remarks"
         counts = self.check_counts()
         if counts["with"]:
-            text += (f"; requirements: {counts['complies']} comply, {counts['fails']} do not "
+            text += (f"; requirements: {counts['complies'] + counts['tolerance']} comply, "
+                     f"{counts['fails']} do not "
                      f"comply, {counts['inconclusive']} not conclusive")
         self.update_compliance(counts)
         self.message.emit(text)
 
     def check_counts(self) -> dict:
-        c = {"complies": 0, "fails": 0, "inconclusive": 0, "no_result": 0, "none": 0}
+        c = {"complies": 0, "tolerance": 0, "fails": 0, "inconclusive": 0, "no_result": 0,
+             "none": 0}
         for e in self.evaluated:
             c[e.check.status] += 1
         c["with"] = len(self.evaluated) - c["none"]
@@ -457,8 +480,11 @@ class BuildingPage(QtWidgets.QWidget):
             self.compliance.setText("No requirements set yet: give a measurement a requirement "
                                     "(Edit... or Set requirement...) to check compliance.")
             return
-        parts = [f"<b style='color:{CHECK_FG['complies']}'>{c['complies']} comply</b>",
-                 f"<b style='color:{CHECK_FG['fails']}'>{c['fails']} do not comply</b>"]
+        parts = [f"<b style='color:{CHECK_FG['complies']}'>{c['complies']} comply</b>"]
+        if c["tolerance"]:
+            parts.append(f"<b style='color:{CHECK_FG['tolerance']}'>{c['tolerance']} comply "
+                         "within the NBN tolerance</b>")
+        parts.append(f"<b style='color:{CHECK_FG['fails']}'>{c['fails']} do not comply</b>")
         if c["inconclusive"]:
             parts.append(f"<b style='color:{CHECK_FG['inconclusive']}'>{c['inconclusive']} "
                          "not conclusive</b> (background noise could change the result)")

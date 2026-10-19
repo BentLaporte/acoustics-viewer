@@ -105,8 +105,11 @@ Names are not changed without raising `schema_version`.
 | `requirement.compared_quantity` | string | e.g. `"DnT,w + C"` |
 | `requirement.direction`, `value_db` | `">="` (airborne) \| `"<="` (impact), int | |
 | `requirement.assessed_value_db` | int or null | the value that was compared |
-| `requirement.check` | `"complies"` \| `"fails"` \| `"inconclusive"` \| `"no_result"` | `inconclusive`: a failure that limit-value bands could change; a pass is always reliable |
+| `requirement.check` | `"complies"` \| `"tolerance"` \| `"fails"` \| `"inconclusive"` \| `"no_result"` | `tolerance`: complies only within the in-situ tolerance of NBN S 01-400 (building only); `inconclusive`: a failure that limit-value bands could change; a pass is always reliable |
 | `requirement.margin_db` | int or null | positive = better than required |
+| `requirement.tolerance_db` | int | NBN S 01-400-1 5.4 / 6.4 / 8.4: 2 dB (installation 1 dB), 4 dB (3 dB) for receiving rooms under 25 m3 that are not bedrooms; 0 = strict (single-measurement commands, or switched off) |
+| `uncertainty` | object or null | ISO 12999-1:2020 expanded uncertainty of the compared value; null without a rating |
+| `uncertainty.expanded_db`, `coverage_factor`, `situation` | number, number, `"B"` | U = k u, situation B (in situ, Table 3 / Table 5), k = 1 |
 | `files.<role>[]` | `{name, measured_at, instrument, serial}` | roles: `source`, `receiver`, `tapping`, `background`, `rt`; file names only; `measured_at` is ISO 8601 with two-second resolution |
 | `bands_hz` | list of 16 ints | 100, 125, ..., 3150 |
 | `bands.*` | list of 16 numbers | per band, same order as `bands_hz` |
@@ -145,14 +148,16 @@ energy-averaged over the files.
 |---|---|
 | `schema_version`, `project`, `reverberation_time_used` | |
 | `airborne_basis`, `impact_basis` | the quantities requirements are checked against |
-| `summary` | counts: `complies`, `fails`, `inconclusive`, `no_result`, `none` (no requirement), `errors` |
+| `nbn_tolerance` | true = requirements are checked with the NBN S 01-400 in-situ tolerance |
+| `summary` | counts: `complies`, `tolerance`, `fails`, `inconclusive`, `no_result`, `none` (no requirement), `errors` |
 | `equipment[]` | `{instrument, serial, used_for[]}` found in the files of all measurements |
 | `measurements[]` | measurement objects as above (airborne first, then impact, then installation noise). An installation measurement is an *installation object* with, in addition, `name`, `source_room` (where the installation is, may be empty), `receiver_room` and `comment`; its `remarks` are the short ones of the viewer |
 
 The building CSV has one row per measurement; the last column, `quantity`, says what
 `single_number_db` is (`DnT,w`, `L'nT,w`, `LAeq,nT` or `LAFmax,nT`). In the project file installation
 measurements are stored under `"installation"`, each level file with its time window
-(`{"file", "start_s", "end_s"}`, `end_s` null = to the end of the file).
+(`{"file", "start_s", "end_s"}`, `end_s` null = to the end of the file). Rooms carry
+`volume_m3` (null = unknown) and `bedroom`; the project carries `nbn_tolerance` (missing = true).
 
 ### `info` output (JSON)
 

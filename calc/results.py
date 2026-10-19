@@ -11,6 +11,7 @@ import numpy as np
 
 from .building import AIRBORNE_BASES, IMPACT_BASES, Evaluated
 from .iso717 import BANDS, REF_AIRBORNE, REF_IMPACT, LIMIT_DB
+from .iso12999 import COVERAGE_K, SITUATION
 
 SCHEMA_VERSION = 1
 
@@ -60,6 +61,7 @@ def evaluated_to_dict(ev: Evaluated, bands: bool = True) -> dict:
         "remarks": [] if ev.error else ev.notes,
         "result": None,
         "requirement": None,
+        "uncertainty": None,
         "files": {},
     }
     r = ev.result
@@ -86,9 +88,19 @@ def evaluated_to_dict(ev: Evaluated, bands: bool = True) -> dict:
             "direction": ">=" if airborne else "<=",
             "value_db": ev.requirement,
             "assessed_value_db": ev.assessed,
-            "check": chk.status,                 # complies | fails | inconclusive | no_result
+            # complies | tolerance | fails | inconclusive | no_result
+            # (tolerance = complies only within the in-situ tolerance of NBN S 01-400)
+            "check": chk.status,
             "margin_db": chk.margin,             # positive = better than required
+            "tolerance_db": ev.tolerance,        # 0 = strict check
         }
+    # ISO 12999-1 situation B: U of the compared value (DnT,w, DnT,w + C, ...), see iso12999
+    out["uncertainty"] = None if ev.uncertainty is None else {
+        "compared_quantity": ev.basis_label,
+        "expanded_db": ev.uncertainty,
+        "coverage_factor": COVERAGE_K,
+        "situation": SITUATION,
+    }
     out["files"] = _files(r.info)
     if bands:
         out["bands_hz"] = [int(b) for b in BANDS]
@@ -136,6 +148,9 @@ def _installation_evaluated(ev: Evaluated) -> dict:
     d = installation_to_dict(ev.result, ev.requirement)
     out.update({k: d[k] for k in ("result", "requirement", "recordings", "reverberation", "files")})
     out["remarks"] = ev.notes
+    if out["requirement"] is not None:               # the building check: with the NBN tolerance
+        out["requirement"]["check"] = ev.check.status
+        out["requirement"]["tolerance_db"] = ev.tolerance
     return out
 
 

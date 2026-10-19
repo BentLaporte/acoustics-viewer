@@ -65,7 +65,8 @@ def test_airborne_json_matches_the_calculation(capsys):
     assert d["result"]["quantity"] == "DnT,w"
     assert (d["result"]["single_number_db"], d["result"]["C"], d["result"]["Ctr"]) == (54, -1, -4)
     assert d["requirement"] == {"compared_quantity": "DnT,w", "direction": ">=", "value_db": 55,
-                                "assessed_value_db": 54, "check": "fails", "margin_db": -1}
+                                "assessed_value_db": 54, "check": "fails", "margin_db": -1,
+                                "tolerance_db": 0}           # a single command: strict
     assert d["bands_hz"][0] == 100 and d["bands_hz"][-1] == 3150 and len(d["bands_hz"]) == 16
     assert np.allclose(d["bands"]["standardized_level_difference_DnT_db"], res.dnt, atol=0.006)
     assert np.allclose(d["bands"]["reverberation_time_s"], res.t, atol=0.0006)
@@ -211,7 +212,8 @@ def test_building_json_summary_and_measurements(capsys, tmp_path):
     code, out, _ = run(capsys, "building", building(tmp_path), "--format", "json")
     d = strict_json(out)
     assert code == 0 and d["project"] == "CLI building" and d["schema_version"] == 1
-    assert d["summary"] == {"complies": 1, "fails": 1, "inconclusive": 0, "no_result": 0,
+    assert d["summary"] == {"complies": 1, "tolerance": 0, "fails": 1, "inconclusive": 0,
+                            "no_result": 0,
                             "none": 0, "errors": 0}
     names = [m["name"] for m in d["measurements"]]
     assert names == ["airborne A to B (wall)", "impact A to B (carpet)"]

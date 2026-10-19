@@ -393,6 +393,10 @@ def test_basis_selection_changes_check_and_titles(app, settings, tmp_path):
     page.air_basis.setCurrentIndex(page.air_basis.findData("wc"))          # 54 + C(-1) = 53
     assert page.project.airborne_basis == "wc" and page.dirty
     assert page.air_table.horizontalHeaderItem(5).text() == "Req. (DnT,w + C)"
+    # 1 dB short: within the 2 dB in-situ tolerance of NBN S 01-400-1 5.4
+    assert page.air_table.item(0, 6).text() == "Complies within tolerance (\u22121 dB)"
+    page.nbn_tolerance.setChecked(False)                                   # strict check
+    assert page.project.nbn_tolerance is False
     assert page.air_table.item(0, 6).text() == "Does not comply (\u22121 dB)"
     assert page.air_bars.plot.titleLabel.text == "DnT,w + C"
     assert page.meas_table.item(0, 1).text() == "\u2265 54 dB"
@@ -879,3 +883,12 @@ def test_export_remembers_the_switches_in_the_project(app, settings, tmp_path, m
         assert not other.dirty
     finally:
         FakeReportDialog.extra_ = {}
+
+
+def test_room_dialog_keeps_volume_and_bedroom(app, settings):
+    from gui.building_dialogs import RoomDialog
+    dlg = RoomDialog(settings, [], Room("B", volume=18.5, bedroom=True))
+    assert dlg.volume.value() == 18.5 and dlg.bedroom.isChecked()
+    assert (dlg.room().volume, dlg.room().bedroom) == (18.5, True)
+    dlg = RoomDialog(settings, [])                      # a new room: volume unknown
+    assert dlg.volume.text() == "unknown" and dlg.room().volume is None
