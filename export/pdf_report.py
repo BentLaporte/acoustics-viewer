@@ -392,9 +392,14 @@ def _title_block(project: Project, evs: list, date: dt.date, options: ReportOpti
     if methods:
         facts.append((T.FACT_METHOD, "<br/>".join(mk(m[0].upper() + m[1:]) for m in methods)))
     kinds = {e.kind for e in evs}
-    # airborne and impact use the project's choice; installation noise always T30 (else T20)
-    rt = [T.RT_TEXT[project.rt_kind]] if kinds & {"airborne", "impact"} or not kinds else []
-    rt += [T.RT_INSTALLATION] if "installation" in kinds else []
+    # airborne and impact use the project's choice, with T30 completed by T20 per band where a
+    # file has no T30 (calc.measurements.load_rt_fallback); installation noise likewise
+    insulation = [e for e in evs if e.kind in ("airborne", "impact")]
+    fallback = any(e.ok and e.result.t20_used for e in insulation)
+    rt = [T.RT_TEXT[project.rt_kind] + (T.RT_T20_FALLBACK if fallback else "")] \
+        if insulation or not kinds else []
+    if "installation" in kinds and not fallback:      # with the fallback the line says it all
+        rt.append(T.RT_INSTALLATION)
     facts.append((T.FACT_RT, "; ".join(rt)))
     basis = []
     if "airborne" in kinds:

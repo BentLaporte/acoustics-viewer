@@ -48,6 +48,10 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
   `tolerance` ("Voldoet binnen tolerantie", olive green). Project switch `nbn_tolerance`
   (default on); rooms carry `volume` and `bedroom`. Single-measurement CLI commands are strict.
   NBN S 01-400-3:2026 has the same numbers; the schools draft (-2) is not implemented.
+* Seconds the instrument marked (record flag 1, probably overload, meaning unverified) are left
+  out of every level calculation and named in the remarks (Bent, Oct 2026; Himpe L1). Airborne
+  and impact use T30, else T20 per band and file where T30 is missing (as installation noise);
+  remark "T20 used at ... Hz" and the first page says "T20 waar T30 ontbreekt".
 * Measurement uncertainty ISO 12999-1:2020 (`calc/iso12999.py`): situation B, k = 1 (Bent's
   choice), U of the compared value, shown in the report (switch `uncertainty`), NOT used in the
   verdict (the NBN tolerance is the Belgian decision rule). None for installation noise.
@@ -85,7 +89,7 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (19 Oct 2026, Windows, `.venv` Python 3.13): 285 passed, 1 skipped.
+Last test run (20 Oct 2026, Windows, `.venv` Python 3.13): 289 passed, 1 skipped.
 Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
 and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
 may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for

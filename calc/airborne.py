@@ -1,14 +1,14 @@
 """Airborne sound insulation from four measurement files (no GUI dependencies)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .iso16283 import dnt
 from .iso717 import BANDS, Rating, airborne_summary
 from .levels import LIMIT, background_correction
-from .measurements import load_levels_info, load_rt_info
+from .measurements import load_levels_info, load_rt_fallback
 
 
 @dataclass
@@ -29,6 +29,7 @@ class AirborneResult:
     rating: Rating | None = None   # ISO 717-1 rating of DnT (None if a band is missing)
     c: int | None = None           # adaptation term C
     ctr: int | None = None         # adaptation term Ctr
+    t20_used: dict = field(default_factory=dict)   # band (Hz) -> files with T20, no T30
 
     @property
     def n_limit(self) -> int:
@@ -45,7 +46,7 @@ def compute_airborne(source, receiver, background, rt, rt_kind: str = "t30") -> 
     l1, i_source = load_levels_info(source)
     l2_raw, i_receiver = load_levels_info(receiver)
     lb, i_background = load_levels_info(background)
-    t, t_counts, i_rt = load_rt_info(rt, rt_kind)
+    t, t_counts, i_rt, t20_used = load_rt_fallback(rt, rt_kind)   # T30, else T20
     info = {"source": i_source, "receiver": i_receiver, "background": i_background, "rt": i_rt}
 
     l2, status = background_correction(l2_raw, lb)
@@ -59,4 +60,4 @@ def compute_airborne(source, receiver, background, rt, rt_kind: str = "t30") -> 
         bands=BANDS.copy(), l1=l1, l2_raw=l2_raw, lb=lb, l2=l2, status=status,
         t=t, t_kind=rt_kind.lower(), d=d, dnt=dnt_values,
         names={k: [x.name for x in v] for k, v in info.items()},
-        t_counts=t_counts, info=info, rating=rating, c=c, ctr=ctr)
+        t_counts=t_counts, t20_used=t20_used, info=info, rating=rating, c=c, ctr=ctr)

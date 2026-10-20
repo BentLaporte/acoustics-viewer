@@ -130,7 +130,7 @@ def compute_installation(recordings, rt, background=None, quantity: str = "laeq"
     measure = (lambda f, r: f.laeq(r.start, r.end)) if quantity == "laeq" else \
               (lambda f, r: f.lafmax(r.start, r.end))
     levels = np.array([measure(f, r) for f, r in zip(files, recs)])
-    durations = [len(f.window(r.start, r.end)) for f, r in zip(files, recs)]
+    durations = [len(f.usable(r.start, r.end)) for f, r in zip(files, recs)]   # used seconds
     info = {"level": [_info(r.path, f) for r, f in zip(recs, files)]}
 
     t_thirds, t20_used, info["rt"] = _rt_thirds(rt)

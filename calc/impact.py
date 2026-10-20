@@ -1,14 +1,14 @@
 """Impact sound insulation from three measurement files (no GUI dependencies)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .iso16283 import lnt
 from .iso717 import BANDS, Rating, impact_adaptation_term, rate_impact
 from .levels import LIMIT, background_correction
-from .measurements import load_levels_info, load_rt_info
+from .measurements import load_levels_info, load_rt_fallback
 
 
 @dataclass
@@ -26,6 +26,7 @@ class ImpactResult:
     info: dict | None = None             # role -> list of FileInfo (name, date and time, instrument)
     rating: Rating | None = None   # ISO 717-2 rating of L'nT (None if a band is missing)
     ci: int | None = None          # adaptation term C_I (100 - 2500 Hz)
+    t20_used: dict = field(default_factory=dict)   # band (Hz) -> files with T20, no T30
 
     @property
     def n_limit(self) -> int:
@@ -40,7 +41,7 @@ def compute_impact(tapping, background, rt, rt_kind: str = "t30") -> ImpactResul
     """
     li_raw, i_tapping = load_levels_info(tapping)
     lb, i_background = load_levels_info(background)
-    t, t_counts, i_rt = load_rt_info(rt, rt_kind)
+    t, t_counts, i_rt, t20_used = load_rt_fallback(rt, rt_kind)   # T30, else T20
     info = {"tapping": i_tapping, "background": i_background, "rt": i_rt}
 
     li, status = background_correction(li_raw, lb)
@@ -53,4 +54,4 @@ def compute_impact(tapping, background, rt, rt_kind: str = "t30") -> ImpactResul
         bands=BANDS.copy(), li_raw=li_raw, lb=lb, li=li, status=status, t=t,
         t_kind=rt_kind.lower(), lnt=lnt_values,
         names={k: [x.name for x in v] for k, v in info.items()},
-        t_counts=t_counts, info=info, rating=rating, ci=ci)
+        t_counts=t_counts, t20_used=t20_used, info=info, rating=rating, ci=ci)

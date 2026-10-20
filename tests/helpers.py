@@ -46,3 +46,17 @@ def make_photo(path, size=(800, 600), color=(90, 140, 200), orientation=None, fm
         kwargs["exif"] = ex
     im.save(path, fmt, **kwargs)
     return str(path)
+
+
+def make_flagged(src, dst, seconds):
+    """Copy a level-type SVL file with the record flag set to 1 for the given (0-based) seconds,
+    as the instrument does for seconds it marks (seen in real files; see svl.parser.Second)."""
+    raw = open(src, "rb").read()
+    buf = find_buffer(raw)
+    stride = BLOCK_WORDS if buf.header_words == 0x12 else buf.last_header_word
+    first = buf.data_start // 2 + (stride - BLOCK_WORDS) // 2     # skip the framing word
+    w = np.frombuffer(raw, dtype="<i2").copy()
+    for k in seconds:
+        w[first + k * stride] = 1
+    open(dst, "wb").write(w.tobytes())
+    return dst

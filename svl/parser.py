@@ -151,17 +151,22 @@ class BufferInfo:
 
 FRAME_PREFIX, FRAME_SUFFIX = 0xC600, 0xCE00     # SV 977C framing words: marker + record length
 PREAMBLE_WORDS = 4       # words in front of the first record when the buffer was not filled up
+FLAGGED = 1              # record flag of a second marked by the instrument (see Second.flag)
 
 
 def find_preamble(allw: np.ndarray, first: int, n_records: int, stride: int, frame: int,
-                  max_records: int) -> int:
+                  max_records: int, confirm=None) -> int:
     """Words between the buffer header and the first record: 4 if the measurement stopped
     before the buffer was full (fewer records than the buffer holds), otherwise 0.
 
     The rule comes from the header, and is then checked on the data itself so that a
     misalignment can never go unnoticed: 977C records must be framed correctly, 977D records
     must start with a zero flag word. If the expected value does not pass, the other one is
-    tried; if neither passes the layout is unknown and an SvlError is raised."""
+    tried; if neither passes the layout is unknown and an SvlError is raised.
+
+    A 977D record may carry flag 1 (a second marked by the instrument, see Second.flag). Such a
+    flag weakens the zero-flag test, so then the alignment must also be confirmed by
+    confirm(top): the instrument's stored whole-file spectrum at its fixed place."""
     expected = PREAMBLE_WORDS if n_records < max_records else 0
     for pre in (expected, PREAMBLE_WORDS - expected):
         top = first + pre
@@ -170,7 +175,10 @@ def find_preamble(allw: np.ndarray, first: int, n_records: int, stride: int, fra
         if frame:
             ok = check_framing(allw, top, stride, n_records)
         else:
-            ok = bool(np.all(allw[top + stride * np.arange(n_records)] == 0))
+            flags = allw[top + stride * np.arange(n_records)]
+            ok = bool(np.all(flags == 0)) or bool(
+                np.all((flags == 0) | (flags == FLAGGED)) and np.any(flags == 0)
+                and confirm is not None and confirm(top))
         if ok:
             return pre
     raise SvlError("the records are not laid out as expected (unknown buffer layout)")
@@ -233,6 +241,11 @@ class Second:
     spectra: np.ndarray            # shape (3, 45), dB
     broadband: np.ndarray          # shape (3, 3), dB, columns = A, C, Z weighting
     extra: np.ndarray              # 12 unidentified values, dB-scaled
+    # first word of the record: 0, or 1 when the instrument marked the second. Seen on loud
+    # source-room seconds of a 977D and a 977C; the meaning (probably overload) is not verified
+    # against SvanPC++. Marked seconds hold doubtful values, so calculations leave them out
+    # (SvlFile.usable); the level history still shows them.
+    flag: int = 0
 
     @property
     def leq_spectrum(self) -> np.ndarray:
@@ -287,8 +300,23 @@ class SvlFile:
         return np.array([s.leq_spectrum for s in self.seconds])
 
     def leq_total(self) -> np.ndarray:
-        """LZeq spectrum integrated over the whole file (energy average), 45 bands."""
-        return energy_mean(self.leq_spectra())
+        """LZeq spectrum integrated over the whole file (energy average), 45 bands; seconds
+        marked by the instrument are left out."""
+        return energy_mean(np.array([s.leq_spectrum for s in self.usable()]))
+
+    @property
+    def flagged_seconds(self) -> list[int]:
+        """Seconds (0-based) marked by the instrument (Second.flag), left out of calculations."""
+        return [k for k, s in enumerate(self.seconds) if s.flag]
+
+    def usable(self, start: int = 0, end: int | None = None) -> list[Second]:
+        """The seconds of a time window that calculations use: the window without the seconds
+        the instrument marked. Raises SvlError if no second is left."""
+        secs = [s for s in self.window(start, end) if not s.flag]
+        if not secs:
+            raise SvlError(f"{self.path.name}: every second of the measurement window is marked "
+                           "by the instrument (record flag), so it cannot be used")
+        return secs
 
     def laeq_total(self) -> float:
         """Broadband LAeq over the whole file."""
@@ -316,7 +344,7 @@ class SvlFile:
 
     def laeq(self, start: int = 0, end: int | None = None) -> float:
         """Broadband LAeq over a time window (default: the whole file)."""
-        a = np.array([s.leq_broadband[0] for s in self.window(start, end)])
+        a = np.array([s.leq_broadband[0] for s in self.usable(start, end)])
         return float(energy_mean(a))
 
     def lafmax(self, start: int = 0, end: int | None = None) -> float:
@@ -328,7 +356,7 @@ class SvlFile:
         Profile 1 must be set to A weighting, Fast on the instrument (its default). The A
         weighting is checked on the data (its eq value equals the LAeq of every second); Fast
         cannot be read from the file and is assumed."""
-        secs = self.window(start, end)
+        secs = self.usable(start, end)
         eq = np.array([s.profiles[0, 3] for s in secs])
         laeq = np.array([s.leq_broadband[0] for s in secs])
         if np.max(np.abs(eq - laeq)) > PROFILE_TOLERANCE_DB:
@@ -367,9 +395,14 @@ def read_svl(path) -> SvlFile:
         raise SvlError(f"{path.name}: file too short for {buf.n_records} records")
 
     allw = np.frombuffer(raw, dtype="<i2", count=len(raw) // 2)
+
+    def stored_total_in_place(top: int) -> bool:      # confirms the alignment, see find_preamble
+        i = top + buf.n_records * stride + STORED_GAP
+        return len(allw) > i + N_BANDS + 3 and tuple(allw[i - 2:i]) == STORED_TAG
+
     try:
         pre = find_preamble(allw, buf.data_start // 2, buf.n_records, stride, frame,
-                            buf.max_records)
+                            buf.max_records, stored_total_in_place)
     except SvlError as exc:
         raise SvlError(f"{path.name}: this does not look like a level file ({exc})") from None
     first = buf.data_start // 2 + pre
@@ -383,8 +416,11 @@ def read_svl(path) -> SvlFile:
         spectra, bb = body[:, :N_BANDS], body[:, N_BANDS:]
         if not (np.all(np.abs(spectra) < 150) and np.all(np.abs(bb) < 150)):
             raise SvlError(f"{path.name}: record {k} does not match the expected layout")
+        flag = int(allw[at])
+        if flag not in (0, FLAGGED):
+            raise SvlError(f"{path.name}: record {k} has an unknown flag ({flag})")
         f.seconds.append(Second(spectra=spectra.copy(), broadband=bb.copy(),
-                                extra=extra.copy()))
+                                extra=extra.copy(), flag=flag))
     # whole-file LZeq spectrum that the instrument stored itself, a fixed distance behind the
     # last record; guarded by the two tag words in front of it
     i = first + buf.n_records * stride + STORED_GAP

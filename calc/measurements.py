@@ -32,11 +32,13 @@ class FileInfo:
     measured_at: datetime | None       # date and time of the measurement (2 s resolution)
     instrument: str | None             # e.g. 'SV 977D'
     serial: int | None
+    flagged: tuple[int, ...] = ()      # seconds (0-based) marked by the instrument, left out
 
 
 def _info(path: Path, f) -> FileInfo:
     d = f.device
-    return FileInfo(path.name, f.measured_at, d.label if d else None, d.serial if d else None)
+    return FileInfo(path.name, f.measured_at, d.label if d else None, d.serial if d else None,
+                    tuple(getattr(f, "flagged_seconds", ())))     # RT files have no flags
 
 
 def load_levels_info(paths):
@@ -62,6 +64,31 @@ def load_rt_info(paths, kind: str):
         warnings.simplefilter("ignore", RuntimeWarning)      # all-NaN bands -> NaN
         t = np.nanmean(values, axis=0)
     return t, n, [_info(p, f) for p, f in files]
+
+
+def load_rt_fallback(paths, kind: str):
+    """Like load_rt_info, but with kind 't30' a file without T30 in a band gives its T20 there
+    (the decay range was too short for 30 dB; T20 is a valid evaluation range of ISO 3382-2,
+    to which ISO 16283 refers). Bent's rule, as for installation noise.
+
+    Returns (T, n, infos, t20_used) with t20_used: band (Hz) -> names of the files concerned."""
+    files = [(p, read_rt(p)) for p in as_list(paths)]
+    values, t20_used = [], {}
+    for p, f in files:
+        v = f.at(BANDS, kind)
+        if kind.lower() == "t30":
+            t20 = f.at(BANDS, "t20")
+            fill = ~np.isfinite(v) & np.isfinite(t20)
+            for hz in BANDS[fill]:
+                t20_used.setdefault(float(hz), []).append(p.name)
+            v = np.where(fill, t20, v)
+        values.append(v)
+    values = np.array(values)
+    n = np.sum(np.isfinite(values), axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)      # all-NaN bands -> NaN
+        t = np.nanmean(values, axis=0)
+    return t, n, [_info(p, f) for p, f in files], t20_used
 
 
 def load_rt(paths, kind: str):

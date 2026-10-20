@@ -325,7 +325,35 @@ class Evaluated:
         counts = [len(v) for k, v in r.names.items() if k != "background"]
         if any(c > 1 for c in counts):
             notes.append("averaged over several files")
-        return notes
+        if r.t20_used:
+            notes.append(t20_note(r.t20_used))
+        return notes + flagged_notes(r.info)
+
+
+def t20_note(t20_used: dict) -> str:
+    return ("T20 used at " + ", ".join(str(int(hz)) for hz in sorted(t20_used))
+            + " Hz (no T30)")
+
+
+def seconds_text(seconds) -> str:
+    """0-based seconds as 1-based ranges: [0, 1, 2, 5] -> '1-3, 6'."""
+    out, run = [], []
+    for s in sorted(seconds):
+        if run and s == run[-1] + 1:
+            run.append(s)
+            continue
+        if run:
+            out.append(f"{run[0] + 1}" if len(run) == 1 else f"{run[0] + 1}-{run[-1] + 1}")
+        run = [s]
+    if run:
+        out.append(f"{run[0] + 1}" if len(run) == 1 else f"{run[0] + 1}-{run[-1] + 1}")
+    return ", ".join(out)
+
+
+def flagged_notes(info) -> list[str]:
+    """One remark per file with seconds the instrument marked (left out of the calculation)."""
+    return [f"{i.name}: seconds {seconds_text(i.flagged)} marked by the instrument, left out"
+            for infos in (info or {}).values() for i in infos if i.flagged]
 
 
 INTEGRATED_NOTE = "integrated method (moving microphone)"
@@ -340,13 +368,12 @@ def installation_notes(r: InstallationResult) -> list[str]:
         if len(r.recordings) > 1:
             notes.append("averaged over several files")
     if r.t20_used:
-        notes.append("T20 used at " + ", ".join(str(int(hz)) for hz in sorted(r.t20_used))
-                     + " Hz (no T30)")
+        notes.append(t20_note(r.t20_used))
     if r.background is None:
         notes.append("background not checked")
     elif r.background_affected:
         notes.append("within 6 dB of background (value overestimated)")
-    return notes
+    return notes + flagged_notes(r.info)
 
 
 def _tolerance(project: Project, kind: str, recv: Room) -> dict:

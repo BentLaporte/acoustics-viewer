@@ -59,6 +59,16 @@ first record is preceded by 4 words (four values like 0xB0xx); if the buffer was
 expected value from the header and verifies it on the data (977D records start with a flag word 0,
 977C records are framed), so a misalignment cannot go unnoticed.
 
+## Record flag
+The first word of a record is 0, or 1 for a second the instrument marked. Seen on loud
+source-room seconds of a 977D (Himpe L1: seconds 1-6) and a 977C (KPW S_L10: seconds 4-5). The
+SvanPC++ ASCII view of L1 shows the same words (as `0.01` = raw 1, every 157th word), so the
+reading is right; what the mark means is not documented (probably overload, not verified).
+When a 977D file has flags 1, the flags alone cannot confirm the alignment, so the reader also
+requires the stored whole-file spectrum tag (12875, 257) in its place behind the last record and
+at least one second with flag 0. Any other flag value is refused. Calculations leave the marked
+seconds out (`SvlFile.usable`) and the remarks name them; the level history still shows them.
+
 ## Common
 - 0x22: measurement name (ASCII, space padded). Serial number near 0xE8.
 - 0x26E: 1/x octave settings: `74, 12, 0x0101, 10, 3, first_index, n_bands`.

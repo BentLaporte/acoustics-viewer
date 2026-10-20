@@ -142,6 +142,7 @@ ROOM_LABEL = {"source": "Bronruimte", "tapping": "Bronruimte",
 
 # installation noise (ISO 10052 as used by NBN S 01-400-1)
 RT_INSTALLATION = "T30, T20 waar T30 ontbreekt (installatiegeluid)"
+RT_T20_FALLBACK = ", T20 waar T30 ontbreekt"
 METHOD_TEXT = {"integrated": "Ge\u00efntegreerde methode: microfoon tijdens de meting door de "
                              "ruimte bewogen",
                "positions": "E\u00e9n meting nabij de hoek en twee metingen in het galmveld"}
@@ -277,6 +278,8 @@ _NOTE_PATTERNS = [
      "ge\u00efntegreerde methode (bewegende microfoon)"),
     (re.compile(r"^T20 used at (.*) Hz \(no T30\)$"), r"T20 gebruikt bij \1 Hz (geen T30)"),
     (re.compile(r"^background not checked$"), "achtergrondgeluiddrukniveau niet gecontroleerd"),
+    (re.compile(r"^(.*): seconds (.*) marked by the instrument, left out$"),
+     r"\1: seconden \2 door het meettoestel gemarkeerd, niet gebruikt"),
     (re.compile(r"^within 6 dB of background \(value overestimated\)$"),
      "minder dan 6 dB boven het achtergrondgeluiddrukniveau (waarde overschat)"),
     (re.compile(r"^room '(.*)' does not exist$"), r"ruimte '\1' bestaat niet"),
