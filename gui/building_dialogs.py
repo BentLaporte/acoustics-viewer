@@ -12,6 +12,7 @@ from calc.building import (AIRBORNE_BASES, IMPACT_BASES, INSTALLATION_QUANTITIES
 
 from export.report_options import GROUPS, TOGGLES, ReportOptions
 
+from .background_window import BackgroundRow
 from .thumbs import IMAGE_FILTER, thumbnail
 from .widgets import FileRow
 
@@ -62,10 +63,23 @@ class RoomDialog(QtWidgets.QDialog):
                                 "room. Several decays are averaged.")
         hint.setStyleSheet("color: #666666;")
         lay.addWidget(hint)
+        # files of another room: allowed, but a deviation that the report states
+        frow = QtWidgets.QHBoxLayout()
+        self.rt_other = QtWidgets.QCheckBox("Measured in another room:")
+        self.rt_from = QtWidgets.QLineEdit(room.rt_from if room else "")
+        self.rt_from.setPlaceholderText("e.g. 1.11 instructieruimte (similar room)")
+        self.rt_other.setChecked(bool(room and room.rt_from))
+        self.rt_from.setEnabled(self.rt_other.isChecked())
+        self.rt_other.toggled.connect(self.rt_from.setEnabled)
+        self.rt_other.setToolTip("The report names this as a deviation: the reverberation time "
+                                 "was not measured in this room.")
+        frow.addWidget(self.rt_other)
+        frow.addWidget(self.rt_from, 1)
+        lay.addLayout(frow)
         self.own_bg = QtWidgets.QCheckBox("This room has its own background measurement "
                                           "(otherwise the building background is used)")
         lay.addWidget(self.own_bg)
-        self.bg = FileRow("Own background", settings)
+        self.bg = BackgroundRow("Own background", settings)
         self.bg.set_paths(room.background_files if room else [], notify=False)
         self.own_bg.setChecked(bool(room and room.background_files))
         self.bg.setEnabled(self.own_bg.isChecked())
@@ -179,6 +193,9 @@ class RoomDialog(QtWidgets.QDialog):
             return _warn(self, "Give the room a name.")
         if name in self.taken:
             return _warn(self, f"There is already a room called '{name}'.")
+        if self.rt_other.isChecked() and not self.rt_from.text().strip():
+            return _warn(self, "Name the room where the reverberation time was measured, or "
+                               "untick 'Measured in another room'.")
         super().accept()
 
     def room(self) -> Room:
@@ -187,7 +204,8 @@ class RoomDialog(QtWidgets.QDialog):
                   for i in range(self.photos.count())]
         return Room(self.name.text().strip(), self.rt.paths(),
                     self.bg.paths() if self.own_bg.isChecked() else [], photos,
-                    self.volume.value() or None, self.bedroom.isChecked())
+                    self.volume.value() or None, self.bedroom.isChecked(),
+                    self.rt_from.text().strip() if self.rt_other.isChecked() else "")
 
 
 class RoomCombo(QtWidgets.QWidget):

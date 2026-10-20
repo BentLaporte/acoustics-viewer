@@ -60,11 +60,15 @@ def test_lafmax_and_requirement_fails():
 
 @needs_samples
 def test_failure_close_to_the_background_is_inconclusive(tmp_path):
-    p = project(requirement=30)
+    # 36 dB, 3.5 dB above the background; with the background subtracted at least 33 dB
+    p = project(requirement=33)                       # + 1 dB tolerance: 33 could comply
     p.installation[0].recordings = [Recording(make_variant(L22, tmp_path / "q.SVL", -8.0))]
     (ev,) = evaluate_project(p)
     assert ev.value == 36 and ev.check.status == "inconclusive"
     assert "within 6 dB of background (value overestimated)" in ev.notes
+    p.installation[0].requirement = 30                # 33 > 30 + 1: fails whatever the background
+    (ev,) = evaluate_project(p)
+    assert ev.check.status == "fails"
 
 
 @needs_samples

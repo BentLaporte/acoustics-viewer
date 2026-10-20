@@ -329,9 +329,11 @@ def _emit(text: str, args) -> None:
 
 
 def _checked(files, role: str) -> list[str]:
+    """The files as given; a level file may carry a window ('file.SVL@start-end'), so only the
+    path part is checked."""
     paths = [str(p) for p in files]
     for p in paths:
-        if not Path(p).exists():
+        if not Recording.parse(p).path.exists():
             raise CliError(f"file not found: {p}   ({role})")
     return paths
 

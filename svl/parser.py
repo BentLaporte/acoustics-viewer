@@ -299,10 +299,10 @@ class SvlFile:
         """LZeq 1/3-octave spectra per second, shape (n_seconds, 45)."""
         return np.array([s.leq_spectrum for s in self.seconds])
 
-    def leq_total(self) -> np.ndarray:
-        """LZeq spectrum integrated over the whole file (energy average), 45 bands; seconds
-        marked by the instrument are left out."""
-        return energy_mean(np.array([s.leq_spectrum for s in self.usable()]))
+    def leq_total(self, start: int = 0, end: int | None = None) -> np.ndarray:
+        """LZeq spectrum integrated over a time window (default: the whole file; energy
+        average), 45 bands; seconds marked by the instrument are left out."""
+        return energy_mean(np.array([s.leq_spectrum for s in self.usable(start, end)]))
 
     @property
     def flagged_seconds(self) -> list[int]:

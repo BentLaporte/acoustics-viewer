@@ -27,6 +27,7 @@ import numpy as np
 from .airborne import AirborneResult, compute_airborne
 from .impact import ImpactResult, compute_impact
 from .installation import QUANTITIES, InstallationResult, Recording, compute_installation
+from .iso10052 import round_db
 from .iso12999 import expanded_uncertainty
 from .nbn import in_situ_tolerance, is_small_room
 
@@ -70,10 +71,14 @@ class Photo:
 class Room:
     name: str
     rt_files: list[str] = field(default_factory=list)
+    # a file may carry a time window, 'file.SVL@start-end' (calc.measurements.as_recordings)
     background_files: list[str] = field(default_factory=list)   # empty = building background
     photos: list[Photo] = field(default_factory=list)           # first photo = main picture
     volume: float | None = None         # m3; decides the NBN tolerance (< 25 m3) and the report
     bedroom: bool = False               # a bedroom never gets the larger small-room tolerance
+    # where the reverberation time files were measured when not in this room (free text, e.g.
+    # '1.11 instructieruimte'); '' = in this room. A deviation the report states.
+    rt_from: str = ""
 
 
 @dataclass
@@ -215,6 +220,7 @@ class Evaluated:
     basis: str = "w"               # installation: the quantity, 'laeq' | 'lafmax'
     tolerance: int = 0             # dB, in-situ tolerance of NBN S 01-400 (0 = strict check)
     small_room: bool = False       # the larger tolerance for rooms < 25 m3 applied
+    rt_from: str = ""              # Room.rt_from of the receiving room ('' = measured there)
 
     @property
     def label(self) -> str:
@@ -291,7 +297,10 @@ class Evaluated:
         if margin >= -self.tolerance:
             return Check("tolerance", margin)
         if self.kind == "installation":              # background noise can only add sound
-            return Check("inconclusive" if self.result.background_affected else "fails", margin)
+            r = self.result
+            if r.background_affected and not r.fails_anyway(self.requirement, self.tolerance):
+                return Check("inconclusive", margin)
+            return Check("fails", margin)
         return Check("inconclusive" if self._limit_matters() else "fails", margin)
 
     @property
@@ -314,7 +323,11 @@ class Evaluated:
             return [self.error]
         r = self.result
         if self.kind == "installation":
-            return installation_notes(r)
+            notes = installation_notes(r)
+            if r.background_affected and self.check.status == "fails":
+                notes.append(f"does not comply even with the background subtracted (at least "
+                             f"{round_db(r.lnt_without_background)} dB)")
+            return notes + self._rt_from_notes()
         notes = []
         if r.rating is None:
             missing = ", ".join(str(int(f)) for f in r.bands[~np.isfinite(self.curve)])
@@ -327,7 +340,21 @@ class Evaluated:
             notes.append("averaged over several files")
         if r.t20_used:
             notes.append(t20_note(r.t20_used))
-        return notes + flagged_notes(r.info)
+        return notes + flagged_notes(r.info) + window_notes(r.info) + self._rt_from_notes()
+
+    def _rt_from_notes(self) -> list[str]:
+        return [rt_from_note(self.rt_from)] if self.rt_from else []
+
+
+def rt_from_note(rt_from: str) -> str:
+    return f"reverberation time not measured in this room; taken from: {rt_from}"
+
+
+def window_notes(info) -> list[str]:
+    """One remark per file of which only a time window is used (not the installation recordings:
+    their windows are on the measurement page)."""
+    return [f"{i.name}: only {i.window} used" for role, infos in (info or {}).items()
+            if role != "level" for i in infos if i.window]
 
 
 def t20_note(t20_used: dict) -> str:
@@ -373,7 +400,7 @@ def installation_notes(r: InstallationResult) -> list[str]:
         notes.append("background not checked")
     elif r.background_affected:
         notes.append("within 6 dB of background (value overestimated)")
-    return notes + flagged_notes(r.info)
+    return notes + flagged_notes(r.info) + window_notes(r.info)
 
 
 def _tolerance(project: Project, kind: str, recv: Room) -> dict:
@@ -405,7 +432,8 @@ def _evaluate_airborne(project: Project, s: AirborneSituation, name: str) -> Eva
                                project.rt_kind)
         return Evaluated("airborne", name, s.source_room, s.receiver_room, res,
                          comment=s.comment, requirement=s.requirement,
-                         basis=project.airborne_basis, **_tolerance(project, "airborne", recv))
+                         basis=project.airborne_basis, rt_from=recv.rt_from,
+                         **_tolerance(project, "airborne", recv))
     except Exception as exc:                         # one bad measurement must not stop the rest
         return Evaluated("airborne", name, s.source_room, s.receiver_room, None,
                          _error_text(exc), s.comment, s.requirement, project.airborne_basis)
@@ -423,7 +451,8 @@ def _evaluate_impact(project: Project, s: ImpactSituation, name: str) -> Evaluat
         res = compute_impact(s.tapping_files, bg, recv.rt_files, project.rt_kind)
         return Evaluated("impact", name, s.tapping_room, s.receiver_room, res,
                          comment=s.comment, requirement=s.requirement,
-                         basis=project.impact_basis, **_tolerance(project, "impact", recv))
+                         basis=project.impact_basis, rt_from=recv.rt_from,
+                         **_tolerance(project, "impact", recv))
     except Exception as exc:
         return Evaluated("impact", name, s.tapping_room, s.receiver_room, None,
                          _error_text(exc), s.comment, s.requirement, project.impact_basis)
@@ -442,6 +471,7 @@ def _evaluate_installation(project: Project, s: InstallationSituation, name: str
         res = compute_installation(s.recordings, recv.rt_files, bg, s.quantity, s.method)
         return Evaluated("installation", name, s.source_room, s.receiver_room, res,
                          comment=s.comment, requirement=s.requirement, basis=s.quantity,
+                         rt_from=recv.rt_from,
                          **_tolerance(project, "installation", recv))
     except Exception as exc:
         return Evaluated("installation", name, s.source_room, s.receiver_room, None,
@@ -501,18 +531,33 @@ def impact_details_files(project: Project, s: ImpactSituation) -> dict:
 
 
 # ----------------------------------------------------------------------------- saving
+_WINDOW = re.compile(r"(@\d+-\d*)$")          # 'file.SVL@3-8': the window of a background file
+
+
+def _split_window(p) -> tuple[str, str]:
+    """'folder/L34.SVL@0-4' -> ('folder/L34.SVL', '@0-4'); no window -> (path, '')."""
+    p = str(p)
+    m = _WINDOW.search(p)
+    return (p[:m.start()], m.group(1)) if m else (p, "")
+
+
 def _rel(paths, base: Path) -> list[str]:
     out = []
     for p in paths:
+        p, window = _split_window(p)
         try:
-            out.append(Path(os.path.relpath(p, base)).as_posix())
+            out.append(Path(os.path.relpath(p, base)).as_posix() + window)
         except ValueError:                           # e.g. another drive on Windows
-            out.append(str(p))
+            out.append(p + window)
     return out
 
 
 def _abs(paths, base: Path) -> list[str]:
-    return [str(p) if Path(p).is_absolute() else str((base / p).resolve()) for p in paths]
+    out = []
+    for p in paths:
+        p, window = _split_window(p)
+        out.append((p if Path(p).is_absolute() else str((base / p).resolve())) + window)
+    return out
 
 
 def project_to_dict(project: Project, base: Path) -> dict:
@@ -531,6 +576,7 @@ def project_to_dict(project: Project, base: Path) -> dict:
         "rooms": [{"name": r.name, "rt_files": _rel(r.rt_files, base),
                    "background_files": _rel(r.background_files, base),
                    "volume_m3": r.volume, "bedroom": r.bedroom,
+                   **({"rt_from": r.rt_from} if r.rt_from else {}),
                    "photos": [{"path": _rel([ph.path], base)[0], "caption": ph.caption}
                               for ph in r.photos]}
                   for r in project.rooms],
@@ -600,7 +646,8 @@ def project_from_dict(d: dict, base: Path) -> Project:
                     _abs(r.get("background_files", []), base),
                     [Photo(_abs([ph["path"]], base)[0], ph.get("caption", ""))
                      for ph in r.get("photos", [])],
-                    _volume(r.get("volume_m3")), bool(r.get("bedroom", False)))
+                    _volume(r.get("volume_m3")), bool(r.get("bedroom", False)),
+                    str(r.get("rt_from", "")).strip())
                for r in d.get("rooms", [])],
         airborne=[AirborneSituation(s["source_room"], s["receiver_room"],
                                     _abs(s.get("source_files", []), base),

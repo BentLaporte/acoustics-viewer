@@ -400,7 +400,14 @@ def _title_block(project: Project, evs: list, date: dt.date, options: ReportOpti
         if insulation or not kinds else []
     if "installation" in kinds and not fallback:      # with the fallback the line says it all
         rt.append(T.RT_INSTALLATION)
-    facts.append((T.FACT_RT, "; ".join(rt)))
+    # reverberation time of another room: a deviation, stated here whatever the switches
+    receivers = {e.receiver_room for e in evs if e.ok}
+    borrowed = [T.RT_BORROWED_ITEM.format(room=r.name, source=r.rt_from)
+                for r in project.rooms if r.rt_from and r.name in receivers]
+    rt_value = mk("; ".join(rt))
+    if borrowed:                                       # its own line: the rooms are user text
+        rt_value += "<br/>" + txt(T.RT_BORROWED.format(items="; ".join(borrowed)))
+    facts.append((T.FACT_RT, rt_value))
     basis = []
     if "airborne" in kinds:
         basis.append(f"{T.KIND_WORD['airborne']}: {AIRBORNE_BASES[project.airborne_basis]}")

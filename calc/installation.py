@@ -6,7 +6,6 @@ from the octave bands 500, 1000 and 2000 Hz. See calc/iso10052.py for the formul
 """
 from __future__ import annotations
 
-import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +18,7 @@ from svl.rt import read_rt
 from .iso10052 import (BACKGROUND_MARGIN_DB, K_OCTAVES, N_MEASUREMENTS, octave_rt,
                        reverberation_index, round_db, standardized_level)
 from .levels import energy_average
-from .measurements import FileInfo, _info, as_list
+from .measurements import FileInfo, Recording, _info, as_list, as_recordings  # noqa: F401
 
 QUANTITIES = {"laeq": "LAeq,nT", "lafmax": "LAFmax,nT"}
 METHODS = {
@@ -29,28 +28,6 @@ METHODS = {
 }
 # the three one-third-octave bands inside each octave of k
 OCTAVE_THIRDS = {500: (400, 500, 630), 1000: (800, 1000, 1250), 2000: (1600, 2000, 2500)}
-
-
-@dataclass(frozen=True)
-class Recording:
-    """One level file, optionally only a part of it: seconds start ... end (end exclusive)."""
-    path: Path
-    start: int = 0
-    end: int | None = None
-
-    @classmethod
-    def parse(cls, spec) -> "Recording":
-        """'file.SVL' or 'file.SVL@start-end' (whole seconds, end may be left out: '@5-')."""
-        spec = str(spec)
-        m = re.fullmatch(r"(.+)@(\d+)-(\d*)", spec)
-        if not m:
-            return cls(Path(spec))
-        return cls(Path(m[1]), int(m[2]), int(m[3]) if m[3] else None)
-
-    @property
-    def window_text(self) -> str:
-        return "" if self.start == 0 and self.end is None else \
-            f"{self.start}-{'' if self.end is None else self.end} s"
 
 
 @dataclass
@@ -85,6 +62,29 @@ class InstallationResult:
     def background_affected(self) -> bool:
         """A recording less than 6 dB above the background: the value is overestimated."""
         return self.margins is not None and bool(np.any(self.margins < BACKGROUND_MARGIN_DB))
+
+    @property
+    def lnt_without_background(self) -> float | None:
+        """L_Aeq,nT with the background energy subtracted from every recording: the lowest the
+        installation noise can be, assuming the background during the measurement was the
+        background that was measured. Only used to decide a failure (fails_anyway); the
+        reported value stays uncorrected (ISO 10052 6.2.1).
+
+        None without a background, for LAFmax (the maximum of the background is not known)
+        and when no recording is above the background (then nothing is left to judge)."""
+        if self.background is None or self.quantity != "laeq":
+            return None
+        energy = 10 ** (self.levels / 10) - 10 ** (self.background / 10)
+        energy = np.clip(energy, 0, None)              # at or below the background: 0
+        if not np.any(energy > 0):
+            return None
+        return float(10 * np.log10(np.mean(energy))) - self.k
+
+    def fails_anyway(self, requirement: int, tolerance: int = 0) -> bool:
+        """Does the installation exceed the requirement (+ tolerance) even with the background
+        subtracted? Then a failure is sure although the level was close to the background."""
+        lo = self.lnt_without_background
+        return lo is not None and round_db(lo) > requirement + tolerance
 
 
 def _rt_thirds(paths) -> tuple[dict, dict, list[FileInfo]]:
@@ -143,10 +143,10 @@ def compute_installation(recordings, rt, background=None, quantity: str = "laeq"
 
     bg = margins = None
     if background is not None:
-        bg_files = [(p, read_svl(p)) for p in as_list(background)]
-        bg = float(energy_average([f.laeq() for _, f in bg_files]))
+        bg_files = [(r, read_svl(r.path)) for r in as_recordings(background)]
+        bg = float(energy_average([f.laeq(r.start, r.end) for r, f in bg_files]))
         margins = levels - bg
-        info["background"] = [_info(p, f) for p, f in bg_files]
+        info["background"] = [_info(r.path, f, r.window_text) for r, f in bg_files]
 
     res = InstallationResult(
         quantity=quantity, method=method, recordings=recs, levels=levels, durations=durations,
@@ -177,9 +177,12 @@ def _notes(r: InstallationResult) -> list[str]:
 def check_requirement(r: InstallationResult, requirement: int | None) -> str:
     """'none' | 'complies' | 'fails' | 'inconclusive'. The requirement is a maximum. A pass is
     always reliable (background noise can only raise the level); a failure is inconclusive when
-    the level was within 6 dB of the background."""
+    the level was within 6 dB of the background, unless it fails even with the background
+    subtracted (InstallationResult.fails_anyway)."""
     if requirement is None:
         return "none"
     if r.value <= requirement:
         return "complies"
-    return "inconclusive" if r.background_affected else "fails"
+    if r.background_affected and not r.fails_anyway(requirement):
+        return "inconclusive"
+    return "fails"

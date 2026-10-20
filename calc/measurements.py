@@ -1,6 +1,7 @@
 """Loading and averaging of several measurement files (positions, decays)."""
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,6 +27,51 @@ def as_list(paths) -> list[Path]:
 
 
 @dataclass(frozen=True)
+class Recording:
+    """One level file, optionally only a part of it: seconds start ... end (end exclusive)."""
+    path: Path
+    start: int = 0
+    end: int | None = None
+
+    @classmethod
+    def parse(cls, spec) -> "Recording":
+        """'file.SVL' or 'file.SVL@start-end' (whole seconds, end may be left out: '@5-')."""
+        spec = str(spec)
+        m = re.fullmatch(r"(.+)@(\d+)-(\d*)", spec)
+        if not m:
+            return cls(Path(spec))
+        return cls(Path(m[1]), int(m[2]), int(m[3]) if m[3] else None)
+
+    @property
+    def windowed(self) -> bool:
+        return not (self.start == 0 and self.end is None)
+
+    @property
+    def spec(self) -> str:
+        """The text form parse() reads back: 'file.SVL' or 'file.SVL@start-end'."""
+        if not self.windowed:
+            return str(self.path)
+        return f"{self.path}@{self.start}-{'' if self.end is None else self.end}"
+
+    @property
+    def window_text(self) -> str:
+        return "" if self.start == 0 and self.end is None else \
+            f"{self.start}-{'' if self.end is None else self.end} s"
+
+
+def as_recordings(paths) -> list[Recording]:
+    """One or more level files -> Recordings. A file may carry a time window as
+    'file.SVL@start-end' (whole seconds; how the project file stores a window on a background
+    file, and what the command line accepts)."""
+    if isinstance(paths, (str, Path, Recording)):
+        paths = [paths]
+    out = [p if isinstance(p, Recording) else Recording.parse(p) for p in paths]
+    if not out:
+        raise ValueError("no file given")
+    return out
+
+
+@dataclass(frozen=True)
 class FileInfo:
     """What the report says about one measurement file."""
     name: str                          # file name only, never the folder
@@ -33,25 +79,27 @@ class FileInfo:
     instrument: str | None             # e.g. 'SV 977D'
     serial: int | None
     flagged: tuple[int, ...] = ()      # seconds (0-based) marked by the instrument, left out
+    window: str = ""                   # part of the file used, e.g. '0-4 s' ('' = whole file)
 
 
-def _info(path: Path, f) -> FileInfo:
+def _info(path: Path, f, window: str = "") -> FileInfo:
     d = f.device
     return FileInfo(path.name, f.measured_at, d.label if d else None, d.serial if d else None,
-                    tuple(getattr(f, "flagged_seconds", ())))     # RT files have no flags
+                    tuple(getattr(f, "flagged_seconds", ())),     # RT files have no flags
+                    window)
 
 
 def load_levels_info(paths):
-    """Like load_levels, plus a FileInfo per file."""
-    files = [(p, read_svl(p)) for p in as_list(paths)]
-    spectra = [f.leq_total()[ISO_SLICE] for _, f in files]
+    """Like load_levels, plus a FileInfo per file. A file may be 'file.SVL@start-end'."""
+    files = [(r, read_svl(r.path)) for r in as_recordings(paths)]
+    spectra = [f.leq_total(r.start, r.end)[ISO_SLICE] for r, f in files]
     levels = spectra[0] if len(spectra) == 1 else energy_average(spectra, axis=0)
-    return levels, [_info(p, f) for p, f in files]
+    return levels, [_info(r.path, f, r.window_text) for r, f in files]
 
 
 def load_levels(paths) -> np.ndarray:
-    """Energy average of the whole-file LZeq spectra of one or more files (positions),
-    100 ... 3150 Hz."""
+    """Energy average of the LZeq spectra of one or more files (positions), 100 ... 3150 Hz;
+    whole files, or the window of a 'file.SVL@start-end'."""
     return load_levels_info(paths)[0]
 
 

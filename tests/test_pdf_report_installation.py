@@ -81,6 +81,7 @@ def test_inconclusive_note(tmp_path):
     from helpers import make_variant
     p = project()
     p.installation[0].recordings = [Recording(make_variant(L22, tmp_path / "q.SVL", -8.0))]
+    p.installation[0].requirement = 33   # at least 33 dB without the background: could comply
     _, pages = build(p, tmp_path)
     assert "Niet conclusief (installatiegeluid)" in pages[0]
     assert "minder dan 6 dB boven het achtergrondgeluiddrukniveau (waarde overschat)" in pages[0]

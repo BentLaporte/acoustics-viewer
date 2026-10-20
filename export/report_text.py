@@ -143,6 +143,9 @@ ROOM_LABEL = {"source": "Bronruimte", "tapping": "Bronruimte",
 # installation noise (ISO 10052 as used by NBN S 01-400-1)
 RT_INSTALLATION = "T30, T20 waar T30 ontbreekt (installatiegeluid)"
 RT_T20_FALLBACK = ", T20 waar T30 ontbreekt"
+# a reverberation time taken from another room is a deviation: always on the first page
+RT_BORROWED = "niet in de ruimte zelf gemeten, overgenomen van een andere ruimte: {items}"
+RT_BORROWED_ITEM = "{room} (van {source})"
 METHOD_TEXT = {"integrated": "Ge\u00efntegreerde methode: microfoon tijdens de meting door de "
                              "ruimte bewogen",
                "positions": "E\u00e9n meting nabij de hoek en twee metingen in het galmveld"}
@@ -187,7 +190,8 @@ NOTE_INSTALL_REQUIREMENT = ("Installatiegeluidresultaten moeten hoogstens gelijk
 NOTE_INSTALL_INCONCLUSIVE = (
     "Niet conclusief (installatiegeluid): het geluiddrukniveau lag minder dan 6 dB boven het "
     "achtergrondgeluiddrukniveau. Het resultaat is daardoor mogelijk te hoog; of aan de eis "
-    "voldaan is, kan niet met zekerheid worden vastgesteld.")
+    "voldaan is, kan niet met zekerheid worden vastgesteld. Blijft het niveau ook na aftrek van "
+    "het achtergrondgeluiddrukniveau boven de eis, dan luidt het besluit wel 'Voldoet niet'.")
 ROOM_ROLE = {"receiver": "ontvangstruimte", "source": "bronruimte", "tapping": "bronruimte"}
 
 EQUIP_HEAD = ("Instrument", "Serienummer", "Gebruikt voor")
@@ -282,6 +286,11 @@ _NOTE_PATTERNS = [
      r"\1: seconden \2 door het meettoestel gemarkeerd, niet gebruikt"),
     (re.compile(r"^within 6 dB of background \(value overestimated\)$"),
      "minder dan 6 dB boven het achtergrondgeluiddrukniveau (waarde overschat)"),
+    (re.compile(r"^does not comply even with the background subtracted \(at least (\d+) dB\)$"),
+     r"voldoet ook na aftrek van het achtergrondgeluid niet (minstens \1 dB)"),
+    (re.compile(r"^(.*): only (.*) used$"), r"\1: enkel \2 gebruikt"),
+    (re.compile(r"^reverberation time not measured in this room; taken from: (.*)$"),
+     r"nagalmtijd niet in deze ruimte gemeten; overgenomen van: \1"),
     (re.compile(r"^room '(.*)' does not exist$"), r"ruimte '\1' bestaat niet"),
     (re.compile(r"^no installation noise level files$"),
      "geen bestanden met geluiddrukniveaus van het installatiegeluid"),

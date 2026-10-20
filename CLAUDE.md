@@ -52,6 +52,15 @@ to compare against yet**. Owner: Bent, acoustics engineer at SonIQ. Output goes 
   out of every level calculation and named in the remarks (Bent, Oct 2026; Himpe L1). Airborne
   and impact use T30, else T20 per band and file where T30 is missing (as installation noise);
   remark "T20 used at ... Hz" and the first page says "T20 waar T30 ontbreekt".
+* Installation noise verdict (our rule, not the standard): a failure within 6 dB of the
+  background is `inconclusive` only if it could still comply with the background energy
+  subtracted (`InstallationResult.fails_anyway`, LAeq only); otherwise `fails`, with the remark
+  "at least N dB". The reported value stays uncorrected.
+* Background files may carry a time window, stored as `file.SVL@start-end` (the CLI syntax of
+  installation recordings; `calc.measurements.as_recordings`); every level file on the command
+  line accepts it. Viewer: "Window..." next to the background files. Remark "only 0-4 s used".
+* A room may use reverberation time files of another room (`Room.rt_from`, free text): a
+  deviation, named in the remarks and always on the first page.
 * Measurement uncertainty ISO 12999-1:2020 (`calc/iso12999.py`): situation B, k = 1 (Bent's
   choice), U of the compared value, shown in the report (switch `uncertainty`), NOT used in the
   verdict (the NBN tolerance is the Belgian decision rule). None for installation noise.
@@ -89,7 +98,7 @@ viewer (dialog with level history: drag the time window; third overview section,
 empty) and report (section, page per measurement, switch `integrated_method_note`). The report
 title is now "Geluidsmetingen" (Bent's choice). Development moved from Cowork (Linux) to Claude
 Code on Windows; tests must pass on both, so compare paths as `Path` objects, not strings.
-Last test run (20 Oct 2026, Windows, `.venv` Python 3.13): 289 passed, 1 skipped.
+Last test run (20 Oct 2026, Windows, `.venv` Python 3.13): 298 passed, 1 skipped.
 Bent has the texts of NBN S 01-400-1:2022, NBN S 01-400-3:2026, the NBN S 01-400-2 draft (2012)
 and ISO 12999-1/-2:2020. Open from NBN S 01-400-1 8.2 (not done, needs Bent): installation noise
 may be background-corrected when it fails (max -2.2 dB, then an upper limit) and gets +5 dB for

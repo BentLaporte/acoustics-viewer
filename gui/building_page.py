@@ -19,7 +19,8 @@ from calc.colors import style_of
 from calc.iso717 import BANDS
 
 from .thumbs import thumbnail
-from .widgets import FileRow, N_BANDS, band_axis, minus, num, pen
+from .background_window import BackgroundRow
+from .widgets import N_BANDS, band_axis, minus, num, pen
 
 ROW_ERROR, ROW_WARN = "#f5b7b1", "#fdebd0"
 CHECK_BG = {"complies": "#d5f5e3", "tolerance": "#eef6d5", "fails": "#f5b7b1",
@@ -208,7 +209,7 @@ class BuildingPage(QtWidgets.QWidget):
         self.name_edit.editingFinished.connect(self.name_changed)
         nr.addWidget(self.name_edit, 1)
         form.addLayout(nr)
-        self.bg_row = FileRow("Building background", self.settings)
+        self.bg_row = BackgroundRow("Building background", self.settings)
         self.bg_row.label.setFixedWidth(150)
         self.bg_row.changed.connect(self.background_changed)
         form.addWidget(self.bg_row)
@@ -379,7 +380,11 @@ class BuildingPage(QtWidgets.QWidget):
         t.setRowCount(len(p.rooms))
         for i, r in enumerate(p.rooms):
             t.setItem(i, 0, _cell(r.name, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter))
-            t.setItem(i, 1, _cell(self.files_text(r.rt_files) or "-"))
+            rt = _cell((self.files_text(r.rt_files) or "-")
+                       + (" (other room)" if r.rt_from else ""))
+            if r.rt_from:
+                rt.setToolTip(f"Measured in: {r.rt_from}")
+            t.setItem(i, 1, rt)
             t.setItem(i, 2, _cell("own: " + self.files_text(r.background_files)
                                   if r.background_files else "building"))
             photos = _cell(str(len(r.photos)) if r.photos else "-")

@@ -28,6 +28,8 @@ python -m calc info A.L1.SVL B.L11.SVL --format json
 ```
 
 Several files after one option are averaged: `--receiver B.L1.SVL B.L2.SVL B.L3.SVL`
+
+Every level file (source, receiver, tapping, background, installation level) may carry a time window: `L34.SVL@0-4` uses only seconds 0 to 4 (end exclusive; `@5-` = from second 5 to the end), e.g. to leave a disturbance out of a background. The remarks name the part used. Project files store a window on a background file the same way.
 (levels: energy average per band; reverberation times: arithmetic mean per band).
 
 ## Options
@@ -133,7 +135,7 @@ For impact: `tapping_level_measured_db`, `background_level_db`, `tapping_level_c
 | `result.standardized_level_unrounded_db`, `measured_level_db`, `reverberation_index_k_db` | L_XY,nT before rounding, L_XY (energy average of the files), k |
 | `result.method`, `method_text` | `"integrated"` \| `"positions"` |
 | `result.background_level_laeq_db`, `background_affected` | background LAeq (null without a file); `true` if a file is less than 6 dB above it: the value is then overestimated, no correction is applied (ISO 10052 6.2.1) |
-| `requirement` | as above with `direction` `"<="`; `inconclusive` = a failure while the level was within 6 dB of the background |
+| `requirement` | as above with `direction` `"<="`; `inconclusive` = a failure while the level was within 6 dB of the background, unless it fails even with the background energy subtracted (LAeq only) |
 | `recordings[]` | `{file, start_s, end_s, duration_s, level_db, margin_to_background_db}` per level file |
 | `reverberation.octave_s` | T in the octaves 500, 1000, 2000 Hz: arithmetic mean of the three one-third octaves in each (our choice) |
 | `reverberation.third_octave_s`, `t20_instead_of_t30_hz` | T per one-third octave (mean over the files; T30, or T20 where T30 is missing) and the bands where T20 was used |
